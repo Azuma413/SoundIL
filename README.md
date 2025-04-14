@@ -5,9 +5,10 @@ Python3.10
 
 ## Setup
 ```bash
+git clone --recurse-submodules https://github.com/Azuma413/sound_dp.git
+cd sound_dp
 uv sync
 uv pip install torch torchvision torchaudio
-git clone --recurse-submodules https://github.com/Azuma413/sound_dp.git
 cd Genesis
 uv pip install -e ".[dev]"
 cd ../lerobot
