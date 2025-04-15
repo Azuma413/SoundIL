@@ -14,3 +14,12 @@ uv pip install -e ".[dev]"
 cd ../lerobot
 uv pip install -e .
 ```
+
+## Run
+```bash
+uv run -m src.main
+```
+
+## Memo
+SO-100のURDFは以下のリポジトリから取ってきた。
+https://github.com/TheRobotStudio/SO-ARM100
