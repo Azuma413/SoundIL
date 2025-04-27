@@ -16,27 +16,9 @@ cd ../lerobot
 uv pip install -e ".[feetech]"
 ```
 - USBデバイスのセットアップ
-Follower用とLeader用のサーボドライバをそれぞれPCに接続し、以下のコマンドを実行する。
+Follower用とLeader用のサーボドライバをそれぞれPCに接続し、適当にそれぞれのデバイスの名前を調べる。
 ```bash
-# サーボドライバが/dev/ttyACM0として認識されている場合
-udevadm info --name=/dev/ttyACM0 --attribute-walk
-```
-表示されるリストから、`idProduct`、`idVendor`、`serial`の項目を見つけて値をメモする。
-```bash
-sudo nano /etc/udev/rules.d/99-usb-devices.rules
-```
-`idProduct`、`idVendor`、`serial`の項目をメモした値に置き換えて、以下の内容を書き込む。
-```
-# Follower
-SUBSYSTEM=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55d3", ATTRS{serial}=="xxxxxx", SYMLINK+="follower-driver"
-# Leader
-SUBSYSTEM=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55d3", ATTRS{serial}=="xxxxxx", SYMLINK+="leader-driver"
-```
-udevadmを更新し、内容が適用されているか確認する。
-```
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-ls -l /dev/*-driver
+ls /dev/ttyA*
 ```
 次に`lerobot/lerobot/common/robot_devices/robots/configs.py`の`So100RobotConfig`を編集する。
 ```python
