@@ -170,6 +170,10 @@ from lerobot.common.robot_devices.robots.utils import Robot, make_robot_from_con
 from lerobot.common.robot_devices.utils import busy_wait, safe_disconnect
 from lerobot.common.utils.utils import has_method, init_logging, log_say
 from lerobot.configs import parser
+from lerobot.common.robot_devices.robots.configs import So100RobotConfig
+from dataclasses import field
+from lerobot.common.robot_devices.cameras.configs import OpenCVCameraConfig
+from lerobot.common.robot_devices.motors.configs import FeetechMotorsBusConfig
 
 ########################################################################################
 # Control modes
@@ -406,8 +410,58 @@ def _init_rerun(control_config: ControlConfig, session_name: str = "lerobot_cont
 def control_robot(cfg: ControlPipelineConfig):
     init_logging()
     logging.info(pformat(asdict(cfg)))
-
-    robot = make_robot_from_config(cfg.robot)
+    config = So100RobotConfig(
+        leader_arms = field(
+            default_factory=lambda: {
+                "main": FeetechMotorsBusConfig(
+                    port="/dev/leader-driver",
+                    motors={
+                        # name: (index, model)
+                        "shoulder_pan": [1, "sts3215"],
+                        "shoulder_lift": [2, "sts3215"],
+                        "elbow_flex": [3, "sts3215"],
+                        "wrist_flex": [4, "sts3215"],
+                        "wrist_roll": [5, "sts3215"],
+                        "gripper": [6, "sts3215"],
+                    },
+                ),
+            }
+        ),
+        follower_arms=field(
+            default_factory=lambda: {
+                "main": FeetechMotorsBusConfig(
+                    port="/dev/follower-driver",
+                    motors={
+                        # name: (index, model)
+                        "shoulder_pan": [1, "sts3215"],
+                        "shoulder_lift": [2, "sts3215"],
+                        "elbow_flex": [3, "sts3215"],
+                        "wrist_flex": [4, "sts3215"],
+                        "wrist_roll": [5, "sts3215"],
+                        "gripper": [6, "sts3215"],
+                    },
+                ),
+            }
+        ),
+        cameras=field(
+            default_factory=lambda: {
+                "laptop": OpenCVCameraConfig(
+                    camera_index=0,
+                    fps=30,
+                    width=640,
+                    height=480,
+                ),
+                "phone": OpenCVCameraConfig(
+                    camera_index=1,
+                    fps=30,
+                    width=640,
+                    height=480,
+                ),
+            }
+        )
+    )
+    # robot = make_robot_from_config(cfg.robot)
+    robot = make_robot_from_config(config)
 
     # TODO(Steven): Blueprint for fixed window size
 
