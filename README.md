@@ -15,6 +15,11 @@ uv pip install -e ".[dev]"
 cd ../lerobot
 uv pip install -e ".[feetech]"
 ```
+ffmpegのインストール
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install ffmpeg -y
+```
 - USBデバイスのセットアップ
 Follower用とLeader用のサーボドライバをそれぞれPCに接続し、適当にそれぞれのデバイスの名前を調べる。
 ```bash
@@ -139,7 +144,7 @@ python lerobot/lerobot/scripts/control_robot.py \
 ```
 
 ex.
-```
+```bash
 python lerobot/lerobot/scripts/control_robot.py \
     --robot.type=so100 \
     --control.type=record \
@@ -172,7 +177,51 @@ python lerobot/lerobot/scripts/control_robot.py \
 - `--control.play_sounds`: 音声合成によるイベント読み上げ（デフォルト：true）
 - `--control.resume`: 既存のデータセットへの追加収集（デフォルト：false）
 
+## 学習の実行
+先にwandbにログインしておく
+```bash
+wandb login
+```
+policyはact, diffusion, pi0, pi0fast, tdmpc, vqbetのいずれか。
+学習の安定性を高めるためにbatch sizeはVRAMが許す限り大きくした方が良い。
+```bash
+export DATASET_NAME=[データセット名]
+export POLICY=diffusion
+uv run lerobot/lerobot/scripts/train.py \
+  --dataset.repo_id=local/${DATASET_NAME} \
+  --dataset.root=datasets/${DATASET_NAME} \
+  --policy.type=$POLICY \
+  --output_dir=outputs/train/${POLICY}-${DATASET_NAME} \
+  --job_name=${POLICY}-${DATASET_NAME} \
+  --policy.device=cuda \
+  --wandb.enable=true \
+  --batch_size=8 \
+  --steps=100000
+```
+- stepsとepochの関係
+例えば30fpsで60秒のデータセットを50個用意した場合、全体で90000フレームになるので1epoch=90000sampleとなる。
+ここでbatch_sizeを8としていた場合、1stepの学習で8sampleが消費されるため、1epoch=1125stepsとなる。
+```
+steps = エポック数 * (データfps * データ長さ * データ数) / バッチサイズ
+```
 
+学習を再開するときは以下のようにする。
+```bash
+uv run lerobot/lerobot/scripts/train.py \
+  --config_path=outputs/train/act_so100_test/checkpoints/last/pretrained_model/train_config.json \
+  --resume=true
+```
+## ポリシーの評価
+- デスクトップで学習した重みの転送
+デスクトップのWSLからノートPCのUbuntuへ重みを転送する。wslではmDNSの名前解決が出来ないので注意。
+```bash
+rsync -avz --progress outputs user_name@ip:~/path/to/sound_dp
+rsync -avz --progress outputs hiratsuka@192.168.0.143:~/SourceCode/sound_dp
+```
+`outputs`フォルダをWindows側に移動
+```bash
+
+```
 ## [SO-100](lerobot/lerobot/examples/10_use_so100.md)
 
 ## Memo
@@ -188,6 +237,6 @@ https://github.com/TheRobotStudio/SO-ARM100
 - [ ] データセット作成
 - [ ] データセットを利用してDPの学習を行う
 - [x] 現実でデータセット作成環境を構築する
-- [ ] 現実でデータセットを作成する
-- [ ] データセットを利用してDPの学習を行う
+- [x] 現実でデータセットを作成する
+- [x] データセットを利用してDPの学習を行う
 - [ ] 現実で動かしてみる
