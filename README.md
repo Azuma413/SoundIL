@@ -29,7 +29,7 @@ class So100RobotConfig(ManipulatorRobotConfig):
     leader_arms: dict[str, MotorsBusConfig] = field(
         default_factory=lambda: {
             "main": FeetechMotorsBusConfig(
-                port="/dev/ttyACM1", # 変更
+                port="/dev/ttyACM0", # 変更
                 motors={
                     # name: (index, model)
                     "shoulder_pan": [1, "sts3215"],
@@ -46,7 +46,7 @@ class So100RobotConfig(ManipulatorRobotConfig):
     follower_arms: dict[str, MotorsBusConfig] = field(
         default_factory=lambda: {
             "main": FeetechMotorsBusConfig(
-                port="/dev/ttyACM0", # 変更
+                port="/dev/ttyACM1", # 変更
                 motors={
                     # name: (index, model)
                     "shoulder_pan": [1, "sts3215"],
@@ -61,7 +61,6 @@ class So100RobotConfig(ManipulatorRobotConfig):
     )
 
 ```
-これは正常に動作しない
 - モーターのセットアップ
 ドライバにボーレートとIDを設定したいモーターを1つ接続した状態で以下のコマンドを実行する。
 ```
@@ -120,10 +119,61 @@ python lerobot/lerobot/scripts/control_robot.py \
   --control.type=teleoperate \
   --control.display_data=true
 ```
-- データセットの作成
+## データセットの作成
+データセット収集を開始します：
+```bash
+python lerobot/lerobot/scripts/control_robot.py \
+  --robot.type=so100 \
+  --control.type=record \
+  --control.fps=30 \
+  --control.single_task="[タスクの説明]" \
+  --control.repo_id=local/[データセット名] \
+  --control.root=datasets/[データセット名] \
+  --control.warmup_time_s=5 \
+  --control.episode_time_s=60 \
+  --control.reset_time_s=30 \
+  --control.num_episodes=50 \
+  --control.push_to_hub=false \
+  --control.resume=false \
+  --control.display_data=true
+```
+
+ex.
+```
+python lerobot/lerobot/scripts/control_robot.py \
+    --robot.type=so100 \
+    --control.type=record \
+    --control.fps=30 \
+    --control.single_task="spread a piece of cloth" \
+    --control.repo_id=local/spread-cloth \
+    --control.root=datasets/spread-cloth \
+    --control.warmup_time_s=5 \
+    --control.episode_time_s=60 \
+    --control.reset_time_s=10 \
+    --control.num_episodes=10 \
+    --control.push_to_hub=false \
+    --control.resume=false \
+    --control.display_data=true
+```
+
+主な引数の説明：
+
+- `--control.fps`: 1秒あたりのフレーム数（デフォルト：ポリシーのfps）
+- `--control.single_task`: データ収集時のタスクの説明（例：「レゴブロックを掴んで右のボックスに入れる」）
+- `--control.repo_id`: データセットの識別子。通常は`{hf_username}/{dataset_name}`の形式
+- `--control.warmup_time_s`: データ収集開始前のウォームアップ時間。ロボットデバイスの準備と同期のために使用（デフォルト：10秒）
+- `--control.episode_time_s`: 各エピソードの記録時間（デフォルト：60秒）
+- `--control.reset_time_s`: 各エピソード後の環境リセット時間（デフォルト：60秒）
+- `--control.num_episodes`: 記録するエピソード数（デフォルト：50）
+- `--control.push_to_hub`: HuggingFace hubへのアップロード（デフォルト：true）
+- `--control.tags`: hubでのデータセットのタグ（オプション）
+- `--control.video`: フレームをビデオとしてエンコード（デフォルト：true）
+- `--control.display_data`: カメラ映像の表示（デフォルト：false）
+- `--control.play_sounds`: 音声合成によるイベント読み上げ（デフォルト：true）
+- `--control.resume`: 既存のデータセットへの追加収集（デフォルト：false）
 
 
-## [SO-100](lerobot/examples/10_use_so100.md)
+## [SO-100](lerobot/lerobot/examples/10_use_so100.md)
 
 ## Memo
 SO-100のURDFは以下のリポジトリから取ってきた。\
@@ -137,7 +187,7 @@ https://github.com/TheRobotStudio/SO-ARM100
 - [ ] マスターのデータをシミュレーション環境に反映させる
 - [ ] データセット作成
 - [ ] データセットを利用してDPの学習を行う
-- [ ] 現実でデータセット作成環境を構築する
+- [x] 現実でデータセット作成環境を構築する
 - [ ] 現実でデータセットを作成する
 - [ ] データセットを利用してDPの学習を行う
 - [ ] 現実で動かしてみる
