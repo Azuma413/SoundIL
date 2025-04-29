@@ -216,11 +216,23 @@ uv run lerobot/lerobot/scripts/train.py \
 デスクトップのWSLからノートPCのUbuntuへ重みを転送する。wslではmDNSの名前解決が出来ないので注意。
 ```bash
 rsync -avz --progress outputs user_name@ip:~/path/to/sound_dp
-rsync -avz --progress outputs hiratsuka@192.168.0.143:~/SourceCode/sound_dp
 ```
-`outputs`フォルダをWindows側に移動
+- ポリシーの実行
 ```bash
-
+python lerobot/lerobot/scripts/control_robot.py \
+  --robot.type=so100 \
+  --control.type=record \
+  --control.fps=4 \
+  --control.single_task="spread a piece of cloth" \
+  --control.repo_id=local/eval_diffusion_spread-cloth \
+  --control.root=datasets/eval_spread-cloth \
+  --control.warmup_time_s=5 \
+  --control.episode_time_s=180 \
+  --control.reset_time_s=10 \
+  --control.num_episodes=1 \
+  --control.push_to_hub=false \
+  --control.policy.path=outputs/train/diffusion_spread-cloth/checkpoints/last/pretrained_model \
+  --control.display_data=true
 ```
 ## [SO-100](lerobot/lerobot/examples/10_use_so100.md)
 
@@ -240,3 +252,4 @@ https://github.com/TheRobotStudio/SO-ARM100
 - [x] 現実でデータセットを作成する
 - [x] データセットを利用してDPの学習を行う
 - [ ] 現実で動かしてみる
+- [ ] サブモジュールをもとのリポジトリをフォークしたものに変更する
