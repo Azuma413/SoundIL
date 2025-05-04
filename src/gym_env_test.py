@@ -80,6 +80,7 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
     gs.init(backend=gs.gpu, precision="32")
     env = GenesisEnv(task=task, observation_height=observation_height, observation_width=observation_width)
     dataset = initialize_dataset(task, observation_height, observation_width)
+    dummy_dataset = initialize_dataset("dummy", observation_height, observation_width)
     for ep in range(episode_num):
         print(f"\n🎬 Starting episode {ep+1}")
         env.reset()
@@ -97,7 +98,7 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
                 actions.append(action)
                 if reward > 0:
                     reward_greater_than_zero = True
-        env.save_video(file_name=f"video_{ep+1}", fps=30)
+        # env.save_video(file_name=f"video_{ep+1}", fps=30)
 
         if not reward_greater_than_zero:
             print(f"🚫 Skipping episode {ep+1} — reward was always 0")
@@ -121,9 +122,18 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
                 "observation.images.front": image_front,
                 "observation.images.side": image_side,
                 "observation.images.sound": image_sound,
-                "task": "pick cube",
+                "task": "pick cube with sound",
+            })
+            dummy_dataset.add_frame({
+                "observation.state": states[i].astype(np.float32),
+                "action": actions[i].astype(np.float32),
+                "observation.images.front": image_front,
+                "observation.images.side": image_side,
+                "observation.images.sound": np.zeros_like(image_sound),
+                "task": "pick cube without sound",
             })
         dataset.save_episode()
+        dummy_dataset.save_episode()
     env.close()
 
 if __name__ == "__main__":
