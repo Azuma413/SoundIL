@@ -177,6 +177,11 @@ python lerobot/lerobot/scripts/control_robot.py \
 - `--control.play_sounds`: 音声合成によるイベント読み上げ（デフォルト：true）
 - `--control.resume`: 既存のデータセットへの追加収集（デフォルト：false）
 
+## データセットの作成（シミュレーション）
+```bash
+uv run src/make_sim_dataset.py
+```
+
 ## 学習の実行
 先にwandbにログインしておく
 ```bash
@@ -234,6 +239,12 @@ python lerobot/lerobot/scripts/control_robot.py \
   --control.policy.path=outputs/train/diffusion_spread-cloth/checkpoints/last/pretrained_model \
   --control.display_data=true
 ```
+
+## ポリシーの評価（シミュレーション）
+```bash
+uv run src/evaluate_policy.py
+```
+
 ## [SO-100](lerobot/lerobot/examples/10_use_so100.md)
 
 ## Memo
@@ -250,9 +261,8 @@ export LD_LIBRARY_PATH="/usr/lib/wsl/lib:$LD_LIBRARY_PATH"
 ## TODO
 - [x] ubuntu, wsl上にgenesisの可視化環境を作る
 - [x] SO-100のurdfをgenesisに読み込ませる
-- [ ] [genesisとpyroomacausticsを組み合わせてgym環境を作成する](https://qiita.com/hbvcg00/items/473d5049dd3fe36d2fa3)
+- [x] [genesisとpyroomacausticsを組み合わせてgym環境を作成する](https://qiita.com/hbvcg00/items/473d5049dd3fe36d2fa3)
 - [x] [現実のマスターアームを組み立て、LeRobotで値を読み取れるようにする](https://note.com/npaka/n/nf41de358825d)
-- [ ] マスターのデータをシミュレーション環境に反映させる
 - [ ] データセット作成
 - [ ] データセットを利用してDPの学習を行う
 - [x] 現実でデータセット作成環境を構築する

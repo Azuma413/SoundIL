@@ -3,8 +3,6 @@ import numpy as np
 from gymnasium import spaces
 import random
 import torch
-import pyroomacoustics as pra
-import cv2
 
 joints_name = (
     "joint1",
@@ -19,7 +17,7 @@ joints_name = (
 )
 AGENT_DIM = len(joints_name)
 
-class SoundTask:
+class TestTask:
     def __init__(self, observation_height, observation_width, show_viewer=False):
         self.observation_height = observation_height
         self.observation_width = observation_width
@@ -50,12 +48,12 @@ class SoundTask:
         # キューブAを追加
         self.cubeA = self.scene.add_entity(
             gs.morphs.Box(size=(0.04, 0.04, 0.04), pos=(0.65, 0.0, 0.02)),
-            surface=gs.surfaces.Aluminium(color=(0.3, 0.7, 0.3))
+            surface=gs.surfaces.Aluminium(color=(0.7, 0.3, 0.3))
         )
         # キューブBを追加
         self.cubeB = self.scene.add_entity(
             gs.morphs.Box(size=(0.04, 0.04, 0.04), pos=(0.35, 0.0, 0.02)),
-            surface=gs.surfaces.Aluminium(color=(0.3, 0.7, 0.3))
+            surface=gs.surfaces.Aluminium(color=(0.3, 0.3, 0.7))
         )
         # 箱を追加
         self.box = self.scene.add_entity(gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.5, 0.0, 0.0)))
@@ -76,7 +74,7 @@ class SoundTask:
             GUI=False
         )
         # サウンドカメラを追加
-        self.sound_cam = SoundCamera(
+        self.sound_cam = DummyCamera(
             self.cubeA,
             observation_height=self.observation_height,
             observation_width=self.observation_width
@@ -202,126 +200,15 @@ class SoundTask:
         self.side_cam.stop_recording(save_to_filename=f"{file_name}_side.mp4", fps=fps)
         self.sound_cam.stop_recording(save_to_filename=f"{file_name}_sound.mp4", fps=fps)
 
-class SoundCamera:
+class DummyCamera:
     def __init__(self, target, observation_height, observation_width):
-        self.target = target
         self.observation_height = observation_height
         self.observation_width = observation_width
-        self.frames = []
-        # DOAパラメータ
-        self.fs = 16000
-        self.nfft = 256
-        self.freq_range = [300, 3500]
-        # シミュレーション設定
-        self.mic_pos = [
-            [0.8, 0.0, 0.1],
-            [0.2, -0.3, 0.1],
-            [0.2, 0.3, 0.1],
-        ]
-        # cornersを2次元に変更し、転置する
-        corners = np.array([
-            [-0.5, 1.0],
-            [1.5, 1.0],
-            [1.5, -1.0],
-            [-0.5, -1.0],
-        ]).T
-        # aroomを3つ作成
-        self.arooms = []
-        for i in range(3):
-            aroom = pra.Room.from_corners(
-                corners,
-                fs=self.fs,
-                materials=None,
-                max_order=3,
-                sigma2_awgn=10**(1/2) / (4 * np.pi * 2)**2,
-                air_absorption=True,
-            )
-            aroom.extrude(3.0) # 部屋の高さを3mに設定
-            # マイクロフォンアレイを追加
-            aroom.add_microphone_array(
-                np.concatenate(
-                    ( # Add parentheses here
-                        pra.circular_2D_array(center=[self.mic_pos[i][0], self.mic_pos[i][1]], M=8, phi0=0, radius=0.035),
-                        np.ones((1, 8)) * self.mic_pos[i][2]
-                    ), # Add parentheses here
-                    axis=0,
-                ),
-            )
-            self.arooms.append(aroom)
-
     def start_recording(self):
-        sound_pos = self.target.get_pos() if self.target is not None else torch.tensor([0.5, 0.3, 0.1])
-        # 既に音源がある場合は削除して新しい音源を追加
-        for aroom in self.arooms:
-            aroom.sources = []
-            aroom.add_source(
-                sound_pos.cpu().numpy(),
-                signal=np.random.randn(self.fs), # 1秒間のホワイトノイズ
-                delay=0,
-            )
-
+        pass
     def stop_recording(self, save_to_filename, fps):
-        sound_image = np.array(self.frames)
-        # cv2で動画を保存
-        # 元のコーデック "mp4v" に戻す
-        # fourcc = cv2.VideoWriter_fourcc(*"avc1") # H.264
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v") # 元のコードに戻す
-        out = cv2.VideoWriter(save_to_filename, fourcc, fps, (self.observation_width, self.observation_height))
-        for i in range(sound_image.shape[0]):
-            # フレームが uint8 であることを確認 (render で変換済みのはずだが念のため)
-            frame_to_write = sound_image[i]
-            if frame_to_write.dtype != np.uint8:
-                 frame_to_write = frame_to_write.astype(np.uint8)
-            out.write(frame_to_write)
-        out.release()
-        self.frames = []
-        # 音源を削除
-        for aroom in self.arooms:
-            aroom.sources = []
-
+        pass
     def render(self):
-        # CubeAが音を発していると仮定して、画像を生成
-        sound_pos = self.target.get_pos() if self.target is not None else torch.tensor([0.5, 0.3, 0.1])
-        sound_image = []
-        for i, aroom in enumerate(self.arooms):
-            # 音源を移動
-            aroom.sources[0].position = sound_pos.cpu().numpy()
-            aroom.simulate()
-            X = pra.transform.stft.analysis(aroom.mic_array.signals.T, self.nfft, self.nfft // 2)
-            X = X.transpose([2, 1, 0])
-            # DOAの計算
-            doa = pra.doa.algorithms['MUSIC'](aroom.mic_array.R, self.fs, self.nfft, c=343., num_src=1, max_four=4)
-            doa.locate_sources(X, freq_range=self.freq_range)
-            spatial_resp = doa.grid.values * 25
-            # 画像上の各pixelのマイクロフォンアレイからの角度を計算してanglesに格納
-            mic_coord = [int((0.8 - self.mic_pos[i][0])*self.observation_height/0.6), int((0.4 + self.mic_pos[i][1])*self.observation_width/0.8)]
-            points = np.array(np.meshgrid(
-                np.arange(self.observation_height),
-                np.arange(self.observation_width),
-            )).T.reshape(-1, 2)
-            angles = (np.arctan2(points[:, 0] - mic_coord[0], points[:, 1] - mic_coord[1]) * 180 / np.pi + 90) % 360
-            sound_map = np.zeros((self.observation_height, self.observation_width))
-            for i, angle in enumerate(angles):
-                sound_map[points[i, 0], points[i, 1]] = spatial_resp[int(angle)]
-            sound_image.append(sound_map)
-        sound_image = np.array(sound_image)
-        # y軸を反転
-        sound_image = np.flip(sound_image, axis=2)
-        sound_image = np.clip(sound_image, 0, 255).astype(np.uint8)
-        sound_image = np.transpose(sound_image, (1, 2, 0))
-        self.frames.append(sound_image)
-        return sound_image, None
-
-
-if __name__ == "__main__":
-    # SondCameraのテスト
-    sound_camera = SoundCamera(None, 480, 640)
-    sound_camera.start_recording()
-    for i in range(10):
-        sound_pixels = sound_camera.render()[0]
-        # 画像を保存
-        cv2.imwrite(f"test_sound_{i}.png", sound_pixels)
-    # 出力ファイル名が .mp4 であることを確認
-    output_filename = "test_sound.mp4"
-    sound_camera.stop_recording(save_to_filename=output_filename, fps=30)
-    print(f"Test video saved to {output_filename}")
+        # ダミーの画像を生成
+        dummy_image = np.zeros((self.observation_height, self.observation_width, 3), dtype=np.uint8)
+        return dummy_image, None

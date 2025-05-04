@@ -1,9 +1,7 @@
 import gymnasium as gym
-import genesis as gs
-import numpy as np
-from gymnasium import spaces
 import warnings
 from env.tasks.sound import SoundTask
+from env.tasks.test import TestTask
 
 class GenesisEnv(gym.Env):
 
@@ -14,12 +12,14 @@ class GenesisEnv(gym.Env):
             task,
             observation_height = 480,
             observation_width = 640,
+            show_viewer=False,
             render_mode=None,
     ):
         super().__init__()
         self.task = task
         self.observation_height = observation_height
         self.observation_width = observation_width
+        self.show_viewer = show_viewer
         self.render_mode = render_mode
         self._env = self._make_env_task(self.task)
         self.observation_space = self._env.observation_space
@@ -46,8 +46,7 @@ class GenesisEnv(gym.Env):
         self._env.save_videos(file_name=file_name, fps=fps)
 
     def close(self):
-        # 必要であればシーンのクリーンアップ処理を追加
-        pass
+        self._env = None
 
     def get_obs(self):
         return self._env.get_obs()
@@ -66,10 +65,15 @@ class GenesisEnv(gym.Env):
 
     def _make_env_task(self, task_name):
         if task_name == "sound":
-            # SoundTaskの初期化から不要な引数を削除
             task = SoundTask(observation_height=self.observation_height,
                              observation_width=self.observation_width,
+                             show_viewer=self.show_viewer,
                              )
+        elif task_name == "test":
+            task = TestTask(observation_height=self.observation_height,
+                            observation_width=self.observation_width,
+                            show_viewer=self.show_viewer,
+                            )
         else:
             raise NotImplementedError(task_name)
         return task

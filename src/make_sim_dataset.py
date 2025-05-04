@@ -13,8 +13,8 @@ def expert_policy(env, stage, step_i):
     task = env._env
     cube_pos = task.cubeA.get_pos().cpu().numpy()
     box_pos = task.box.get_pos().cpu().numpy()
-    motors_dof = task.motors_dof
-    fingers_dof = task.fingers_dof
+    # motors_dof = task.motors_dof
+    # fingers_dof = task.fingers_dof
     finder_pos = -0.02  # tighter grip
     quat = np.array([0, 1, 0, 0]) # Changed from [[0, 1, 0, 0]] to [0, 1, 0, 0]
     eef = task.eef
@@ -56,10 +56,10 @@ def expert_policy(env, stage, step_i):
 def initialize_dataset(task, height, width):
     # Initialize dataset
     dict_idx = 0
-    dataset_path = f"data/{task}_{dict_idx}"
-    while os.path.exists(f"data/{task}_{dict_idx}"):
+    dataset_path = f"datasets/{task}_{dict_idx}"
+    while os.path.exists(f"datasets/{task}_{dict_idx}"):
         dict_idx += 1
-        dataset_path = f"data/{task}_{dict_idx}"
+        dataset_path = f"datasets/{task}_{dict_idx}"
     lerobot_dataset = LeRobotDataset.create(
         repo_id=None,
         fps=30,
@@ -76,13 +76,20 @@ def initialize_dataset(task, height, width):
     )
     return lerobot_dataset
 
-def main(task, stage_dict, observation_height=480, observation_width=640, episode_num=1):
+def main(task, stage_dict, observation_height=480, observation_width=640, episode_num=1, show_viewer=False):
     gs.init(backend=gs.gpu, precision="32")
-    env = GenesisEnv(task=task, observation_height=observation_height, observation_width=observation_width)
+    env = None
     dataset = initialize_dataset(task, observation_height, observation_width)
-    dummy_dataset = initialize_dataset("dummy", observation_height, observation_width)
-    for ep in range(episode_num):
+    if task == "sound":
+        dummy_dataset = initialize_dataset("dummy", observation_height, observation_width)
+    ep = 0
+    while ep < episode_num:
         print(f"\n🎬 Starting episode {ep+1}")
+        if ep % 10 == 0:
+            # メモリリークを避けるために、10エピソードごとに環境をリセット
+            if env is not None:
+                env.close()
+            env = GenesisEnv(task=task, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
         env.reset()
         states, images_front, images_side, images_sound, actions = [], [], [], [], []
         reward_greater_than_zero = False
@@ -98,12 +105,14 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
                 actions.append(action)
                 if reward > 0:
                     reward_greater_than_zero = True
-        # env.save_video(file_name=f"video_{ep+1}", fps=30)
+        # デバッグ用
+        env.save_video(file_name=f"video_{ep+1}", fps=30)
 
         if not reward_greater_than_zero:
             print(f"🚫 Skipping episode {ep+1} — reward was always 0")
             continue
         print(f"✅ Saving episode {ep+1} — reward > 0 observed")
+        ep += 1
 
         for i in range(len(states)):
             image_front = images_front[i]
@@ -124,19 +133,22 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
                 "observation.images.sound": image_sound,
                 "task": "pick cube with sound",
             })
-            dummy_dataset.add_frame({
-                "observation.state": states[i].astype(np.float32),
-                "action": actions[i].astype(np.float32),
-                "observation.images.front": image_front,
-                "observation.images.side": image_side,
-                "observation.images.sound": np.zeros_like(image_sound),
-                "task": "pick cube without sound",
-            })
+            if task == "sound":
+                dummy_dataset.add_frame({
+                    "observation.state": states[i].astype(np.float32),
+                    "action": actions[i].astype(np.float32),
+                    "observation.images.front": image_front,
+                    "observation.images.side": image_side,
+                    "observation.images.sound": np.zeros_like(image_sound),
+                    "task": "pick cube without sound",
+                })
         dataset.save_episode()
-        dummy_dataset.save_episode()
+        if task == "sound":
+            dummy_dataset.save_episode()
     env.close()
 
 if __name__ == "__main__":
+    task = "test" # "test" or "sound"
     # 20秒くらいのタスクを想定 → 合計600フレーム
     stage_dict = {
         "hover": 100, # cubeの上に手を持っていく
@@ -147,4 +159,4 @@ if __name__ == "__main__":
         "stabilize_box": 60, # cubeを箱の上で安定させる
         "release": 60, # cubeを離す
     }
-    main(task="sound", stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=1)
+    main(task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=100, show_viewer=False)
