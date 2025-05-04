@@ -1,0 +1,141 @@
+<?xml version="1.0"?>
+<robot name="open_box">
+
+  <!-- Define materials -->
+  <material name="grey">
+    <color rgba="0.5 0.5 0.5 1.0"/>
+  </material>
+
+  <!-- Base link (optional, can be the bottom plate) -->
+  <link name="base_link"/>
+
+  <!-- Bottom plate -->
+  <link name="bottom_plate">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="1.0 1.0 0.02"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="1.0 1.0 0.02"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <!-- Adjust mass and inertia as needed -->
+      <mass value="1.0"/>
+      <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.1" iyz="0" izz="0.1"/>
+    </inertial>
+  </link>
+
+  <joint name="base_to_bottom" type="fixed">
+    <parent link="base_link"/>
+    <child link="bottom_plate"/>
+    <origin xyz="0 0 0.01" rpy="0 0 0"/> <!-- Position bottom plate slightly above base -->
+  </joint>
+
+  <!-- Side plates -->
+  <link name="front_plate">
+    <visual>
+      <origin xyz="0 0 0.25" rpy="0 0 0"/>
+      <geometry>
+        <box size="1.0 0.02 0.5"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+       <origin xyz="0 0 0.25" rpy="0 0 0"/>
+       <geometry>
+         <box size="1.0 0.02 0.5"/>
+       </geometry>
+    </collision>
+     <inertial>
+      <mass value="0.5"/>
+      <inertia ixx="0.05" ixy="0" ixz="0" iyy="0.05" iyz="0" izz="0.05"/>
+    </inertial>
+  </link>
+  <joint name="bottom_to_front" type="fixed">
+    <parent link="bottom_plate"/>
+    <child link="front_plate"/>
+    <origin xyz="0 0.51 0" rpy="0 0 0"/> <!-- Position relative to bottom plate center -->
+  </joint>
+
+  <link name="back_plate">
+     <visual>
+      <origin xyz="0 0 0.25" rpy="0 0 0"/>
+      <geometry>
+        <box size="1.0 0.02 0.5"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+       <origin xyz="0 0 0.25" rpy="0 0 0"/>
+       <geometry>
+         <box size="1.0 0.02 0.5"/>
+       </geometry>
+    </collision>
+     <inertial>
+      <mass value="0.5"/>
+      <inertia ixx="0.05" ixy="0" ixz="0" iyy="0.05" iyz="0" izz="0.05"/>
+    </inertial>
+  </link>
+  <joint name="bottom_to_back" type="fixed">
+    <parent link="bottom_plate"/>
+    <child link="back_plate"/>
+    <origin xyz="0 -0.51 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="left_plate">
+     <visual>
+      <origin xyz="0 0 0.25" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.02 1.0 0.5"/> <!-- Adjusted size for side plate -->
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+       <origin xyz="0 0 0.25" rpy="0 0 0"/>
+       <geometry>
+         <box size="0.02 1.0 0.5"/>
+       </geometry>
+    </collision>
+     <inertial>
+      <mass value="0.5"/>
+      <inertia ixx="0.05" ixy="0" ixz="0" iyy="0.05" iyz="0" izz="0.05"/>
+    </inertial>
+  </link>
+  <joint name="bottom_to_left" type="fixed">
+    <parent link="bottom_plate"/>
+    <child link="left_plate"/>
+    <origin xyz="-0.51 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="right_plate">
+     <visual>
+      <origin xyz="0 0 0.25" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.02 1.0 0.5"/>
+      </geometry>
+      <material name="grey"/>
+    </visual>
+    <collision>
+       <origin xyz="0 0 0.25" rpy="0 0 0"/>
+       <geometry>
+         <box size="0.02 1.0 0.5"/>
+       </geometry>
+    </collision>
+     <inertial>
+      <mass value="0.5"/>
+      <inertia ixx="0.05" ixy="0" ixz="0" iyy="0.05" iyz="0" izz="0.05"/>
+    </inertial>
+  </link>
+  <joint name="bottom_to_right" type="fixed">
+    <parent link="bottom_plate"/>
+    <child link="right_plate"/>
+    <origin xyz="0.51 0 0" rpy="0 0 0"/>
+  </joint>
+
+</robot>
