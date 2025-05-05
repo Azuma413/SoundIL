@@ -9,4 +9,5 @@ dependencies = [
     "py-cpuinfo>=9.0.0",
     "pyroomacoustics>=0.8.3",
     "sounddevice>=0.5.1",
+    "transformers>=4.51.3",
 ]

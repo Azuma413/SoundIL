@@ -47,12 +47,12 @@ class TestTask:
         self.franka = self.scene.add_entity(gs.morphs.MJCF(file="xml/franka_emika_panda/panda.xml"))
         # キューブAを追加
         self.cubeA = self.scene.add_entity(
-            gs.morphs.Box(size=(0.04, 0.04, 0.04), pos=(0.65, 0.0, 0.02)),
+            gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.65, 0.0, 0.025)),
             surface=gs.surfaces.Aluminium(color=(0.7, 0.3, 0.3))
         )
         # キューブBを追加
         self.cubeB = self.scene.add_entity(
-            gs.morphs.Box(size=(0.04, 0.04, 0.04), pos=(0.35, 0.0, 0.02)),
+            gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.35, 0.0, 0.025)),
             surface=gs.surfaces.Aluminium(color=(0.3, 0.3, 0.7))
         )
         # 箱を追加
@@ -61,16 +61,16 @@ class TestTask:
         self.front_cam = self.scene.add_camera(
             res=(self.observation_width, self.observation_height),
             pos=(2.5, 0.0, 1.5),
-            lookat=(0.5, 0.0, 0.4),
-            fov=30,
+            lookat=(0.5, 0.0, 0.1),
+            fov=18,
             GUI=False
         )
         # サイドカメラを追加
         self.side_cam = self.scene.add_camera(
             res=(self.observation_width, self.observation_height),
             pos=(0.5, 1.5, 1.5),
-            lookat=(0.5, 0.0, 0.2),
-            fov=30,
+            lookat=(0.5, 0.0, 0.0),
+            fov=20,
             GUI=False
         )
         # サウンドカメラを追加
@@ -93,23 +93,21 @@ class TestTask:
             "sound": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
         })
     
+    def set_random_state(self, target, x_range, y_range, z):
+        x = self._random.uniform(x_range[0], x_range[1])
+        y = self._random.uniform(y_range[0], y_range[1])
+        z = z
+        pos_tensor = torch.tensor([x, y, z], dtype=torch.float32, device=gs.device)
+        quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
+        target.set_pos(pos_tensor)
+        target.set_quat(quat_tensor)
+    
     def reset(self):
         # CubeAの位置をランダムに設定
-        x = self._random.uniform(0.3, 0.7)
-        y = self._random.uniform(-0.3, 0.3)
-        z = 0.02
-        pos_tensor = torch.tensor([x, y, z], dtype=torch.float32, device=gs.device)
-        quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
-        self.cubeA.set_pos(pos_tensor)
-        self.cubeA.set_quat(quat_tensor)
+        while self.compute_reward() == 1.0:
+            self.set_random_state(self.cubeA, (0.3, 0.7), (-0.3, 0.3), 0.025)
         # CubeBの位置をランダムに設定
-        x = self._random.uniform(0.3, 0.7)
-        y = self._random.uniform(-0.3, 0.3)
-        z = 0.02
-        pos_tensor = torch.tensor([x, y, z], dtype=torch.float32, device=gs.device)
-        quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
-        self.cubeB.set_pos(pos_tensor)
-        self.cubeB.set_quat(quat_tensor)
+        self.set_random_state(self.cubeB, (0.3, 0.7), (-0.3, 0.3), 0.025)
         # 箱を初期位置に設定
         pos_tensor = torch.tensor([0.5, 0.0, 0.0], dtype=torch.float32, device=gs.device)
         quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
@@ -212,3 +210,21 @@ class DummyCamera:
         # ダミーの画像を生成
         dummy_image = np.zeros((self.observation_height, self.observation_width, 3), dtype=np.uint8)
         return dummy_image, None
+
+if __name__ == "__main__":
+    import cv2
+    task = TestTask(observation_height=480, observation_width=640, show_viewer=False)
+    task.reset()
+    for _ in range(3):
+        action = np.random.uniform(-1.0, 1.0, size=(AGENT_DIM,))
+        task.step(action)
+    # 最後の画像を保存
+    obs = task.get_obs()
+    for key, value in obs.items():
+        if key == "agent_pos" or key == "sound":
+            continue
+        # rgbの入れ替え
+        if value.shape[2] == 3:
+            value = cv2.cvtColor(value, cv2.COLOR_RGB2BGR)
+        print(f"{key}: {value.shape}")
+        cv2.imwrite(f"{key}.png", value)

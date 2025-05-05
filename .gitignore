@@ -3,3 +3,4 @@ __pycache__/
 main*.json
 outputs/
 data/
+video_*.mp4

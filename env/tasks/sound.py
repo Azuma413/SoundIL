@@ -49,12 +49,12 @@ class SoundTask:
         self.franka = self.scene.add_entity(gs.morphs.MJCF(file="xml/franka_emika_panda/panda.xml"))
         # キューブAを追加
         self.cubeA = self.scene.add_entity(
-            gs.morphs.Box(size=(0.04, 0.04, 0.04), pos=(0.65, 0.0, 0.02)),
+            gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.65, 0.0, 0.025)),
             surface=gs.surfaces.Aluminium(color=(0.3, 0.7, 0.3))
         )
         # キューブBを追加
         self.cubeB = self.scene.add_entity(
-            gs.morphs.Box(size=(0.04, 0.04, 0.04), pos=(0.35, 0.0, 0.02)),
+            gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.35, 0.0, 0.025)),
             surface=gs.surfaces.Aluminium(color=(0.3, 0.7, 0.3))
         )
         # 箱を追加
@@ -63,16 +63,16 @@ class SoundTask:
         self.front_cam = self.scene.add_camera(
             res=(self.observation_width, self.observation_height),
             pos=(2.5, 0.0, 1.5),
-            lookat=(0.5, 0.0, 0.4),
-            fov=30,
+            lookat=(0.5, 0.0, 0.1),
+            fov=18,
             GUI=False
         )
         # サイドカメラを追加
         self.side_cam = self.scene.add_camera(
             res=(self.observation_width, self.observation_height),
             pos=(0.5, 1.5, 1.5),
-            lookat=(0.5, 0.0, 0.2),
-            fov=30,
+            lookat=(0.5, 0.0, 0.0),
+            fov=20,
             GUI=False
         )
         # サウンドカメラを追加
@@ -95,23 +95,21 @@ class SoundTask:
             "sound": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
         })
     
+    def set_random_state(self, target, x_range, y_range, z):
+        x = self._random.uniform(x_range[0], x_range[1])
+        y = self._random.uniform(y_range[0], y_range[1])
+        z = z
+        pos_tensor = torch.tensor([x, y, z], dtype=torch.float32, device=gs.device)
+        quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
+        target.set_pos(pos_tensor)
+        target.set_quat(quat_tensor)
+    
     def reset(self):
         # CubeAの位置をランダムに設定
-        x = self._random.uniform(0.3, 0.7)
-        y = self._random.uniform(-0.3, 0.3)
-        z = 0.02
-        pos_tensor = torch.tensor([x, y, z], dtype=torch.float32, device=gs.device)
-        quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
-        self.cubeA.set_pos(pos_tensor)
-        self.cubeA.set_quat(quat_tensor)
+        while self.compute_reward() == 1.0:
+            self.set_random_state(self.cubeA, (0.3, 0.7), (-0.3, 0.3), 0.025)
         # CubeBの位置をランダムに設定
-        x = self._random.uniform(0.3, 0.7)
-        y = self._random.uniform(-0.3, 0.3)
-        z = 0.02
-        pos_tensor = torch.tensor([x, y, z], dtype=torch.float32, device=gs.device)
-        quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
-        self.cubeB.set_pos(pos_tensor)
-        self.cubeB.set_quat(quat_tensor)
+        self.set_random_state(self.cubeB, (0.3, 0.7), (-0.3, 0.3), 0.025)
         # 箱を初期位置に設定
         pos_tensor = torch.tensor([0.5, 0.0, 0.0], dtype=torch.float32, device=gs.device)
         quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
@@ -219,17 +217,35 @@ class SoundCamera:
             [0.2, 0.3, 0.1],
         ]
         # cornersを2次元に変更し、転置する
-        corners = np.array([
+        self.corners = np.array([
             [-0.5, 1.0],
             [1.5, 1.0],
             [1.5, -1.0],
             [-0.5, -1.0],
         ]).T
-        # aroomを3つ作成
-        self.arooms = []
+
+    def start_recording(self):
+        pass
+
+    def stop_recording(self, save_to_filename, fps):
+        sound_image = np.array(self.frames)
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        out = cv2.VideoWriter(save_to_filename, fourcc, fps, (self.observation_width, self.observation_height))
+        for i in range(sound_image.shape[0]):
+            frame_to_write = sound_image[i]
+            if frame_to_write.dtype != np.uint8:
+                 frame_to_write = frame_to_write.astype(np.uint8)
+            out.write(frame_to_write)
+        out.release()
+        self.frames = []
+
+    def render(self):
+        # CubeAが音を発していると仮定して、画像を生成
+        sound_pos = self.target.get_pos() if self.target is not None else torch.tensor([0.5, 0.3, 0.1])
+        sound_image = []
         for i in range(3):
             aroom = pra.Room.from_corners(
-                corners,
+                self.corners,
                 fs=self.fs,
                 materials=None,
                 max_order=3,
@@ -247,45 +263,11 @@ class SoundCamera:
                     axis=0,
                 ),
             )
-            self.arooms.append(aroom)
-
-    def start_recording(self):
-        sound_pos = self.target.get_pos() if self.target is not None else torch.tensor([0.5, 0.3, 0.1])
-        # 既に音源がある場合は削除して新しい音源を追加
-        for aroom in self.arooms:
-            aroom.sources = []
             aroom.add_source(
                 sound_pos.cpu().numpy(),
                 signal=np.random.randn(self.fs), # 1秒間のホワイトノイズ
                 delay=0,
             )
-
-    def stop_recording(self, save_to_filename, fps):
-        sound_image = np.array(self.frames)
-        # cv2で動画を保存
-        # 元のコーデック "mp4v" に戻す
-        # fourcc = cv2.VideoWriter_fourcc(*"avc1") # H.264
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v") # 元のコードに戻す
-        out = cv2.VideoWriter(save_to_filename, fourcc, fps, (self.observation_width, self.observation_height))
-        for i in range(sound_image.shape[0]):
-            # フレームが uint8 であることを確認 (render で変換済みのはずだが念のため)
-            frame_to_write = sound_image[i]
-            if frame_to_write.dtype != np.uint8:
-                 frame_to_write = frame_to_write.astype(np.uint8)
-            out.write(frame_to_write)
-        out.release()
-        self.frames = []
-        # 音源を削除
-        for aroom in self.arooms:
-            aroom.sources = []
-
-    def render(self):
-        # CubeAが音を発していると仮定して、画像を生成
-        sound_pos = self.target.get_pos() if self.target is not None else torch.tensor([0.5, 0.3, 0.1])
-        sound_image = []
-        for i, aroom in enumerate(self.arooms):
-            # 音源を移動
-            aroom.sources[0].position = sound_pos.cpu().numpy()
             aroom.simulate()
             X = pra.transform.stft.analysis(aroom.mic_array.signals.T, self.nfft, self.nfft // 2)
             X = X.transpose([2, 1, 0])
@@ -311,7 +293,6 @@ class SoundCamera:
         sound_image = np.transpose(sound_image, (1, 2, 0))
         self.frames.append(sound_image)
         return sound_image, None
-
 
 if __name__ == "__main__":
     # SondCameraのテスト

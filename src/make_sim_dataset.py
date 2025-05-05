@@ -4,6 +4,7 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from env.genesis_env import GenesisEnv
+from env.tasks.sound import joints_name
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 import os
 import numpy as np
@@ -67,11 +68,11 @@ def initialize_dataset(task, height, width):
         robot_type="franka",
         use_videos=True,
         features={
-            "observation.state": {"dtype": "float32", "shape": (9,)},
-            "action": {"dtype": "float32", "shape": (9,)},
-            "observation.images.front": {"dtype": "video", "shape": (height, width, 3)},
-            "observation.images.side": {"dtype": "video", "shape": (height, width, 3)},
-            "observation.images.sound": {"dtype": "video", "shape": (height, width, 3)},
+            "observation.state": {"dtype": "float32", "shape": (9,), "names": joints_name},
+            "action": {"dtype": "float32", "shape": (9,), "names": joints_name},
+            "observation.images.front": {"dtype": "video", "shape": (height, width, 3), "names": ("height", "width", "channels")},
+            "observation.images.side": {"dtype": "video", "shape": (height, width, 3), "names": ("height", "width", "channels")},
+            "observation.images.sound": {"dtype": "video", "shape": (height, width, 3), "names": ("height", "width", "channels")},
         },
     )
     return lerobot_dataset
@@ -106,7 +107,7 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
                 if reward > 0:
                     reward_greater_than_zero = True
         # デバッグ用
-        env.save_video(file_name=f"video_{ep+1}", fps=30)
+        env.save_video(file_name=f"video", fps=30)
 
         if not reward_greater_than_zero:
             print(f"🚫 Skipping episode {ep+1} — reward was always 0")
@@ -159,4 +160,4 @@ if __name__ == "__main__":
         "stabilize_box": 60, # cubeを箱の上で安定させる
         "release": 60, # cubeを離す
     }
-    main(task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=100, show_viewer=False)
+    main(task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=1, show_viewer=False)

@@ -211,10 +211,12 @@ steps = エポック数 * (データfps * データ長さ * データ数) / バ�
 ```
 
 学習を再開するときは以下のようにする。
+前回学習時と同じstepsにすると、なにも学習せずに終わるので注意。
 ```bash
 uv run lerobot/lerobot/scripts/train.py \
   --config_path=outputs/train/act_so100_test/checkpoints/last/pretrained_model/train_config.json \
-  --resume=true
+  --resume=true \
+  --steps=150000
 ```
 ## ポリシーの評価
 - デスクトップで学習した重みの転送
@@ -242,7 +244,7 @@ python lerobot/lerobot/scripts/control_robot.py \
 
 ## ポリシーの評価（シミュレーション）
 ```bash
-uv run src/evaluate_policy.py
+uv run src/eval_policy.py
 ```
 
 ## [SO-100](lerobot/lerobot/examples/10_use_so100.md)
