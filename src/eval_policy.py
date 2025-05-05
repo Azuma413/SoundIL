@@ -13,14 +13,14 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from env.genesis_env import GenesisEnv
 
-def main(training_name, observation_height, observation_width, episode_num, show_viewer):
+def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last"):
     policy_list = ["act", "diffusion", "pi0", "tdmpc", "vqbet"]
     task_list = ["test", "sound"]
-    output_directory = Path(f"outputs/eval/{training_name}")
+    output_directory = Path(f"outputs/eval/{training_name}_{checkpoint_step}")
     output_directory.mkdir(parents=True, exist_ok=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
-    pretrained_policy_path = Path(f"outputs/train/{training_name}/checkpoints/last/pretrained_model")
+    pretrained_policy_path = Path(f"outputs/train/{training_name}/checkpoints/{checkpoint_step}/pretrained_model")
     if not pretrained_policy_path.exists():
         print(f"Error: Pretrained model not found at {pretrained_policy_path}")
         return
@@ -62,6 +62,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
     print("Environment Observation Space:", env.observation_space)
     print("Policy Output Features:", policy.config.output_features)
     print("Environment Action Space:", env.action_space)
+    success_num = 0
     for ep in range(episode_num):
         print(f"\n=== Episode {ep+1} ===")
         policy.reset()
@@ -137,6 +138,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
         print(f"Evaluation finished after {step} steps. Total reward: {total_reward:.4f}")
         if total_reward > 0:
             print("Result: Success!")
+            success_num += 1
         else:
             print("Result: Failure.")
         valid_frames = [f for f in frames if f is not None and isinstance(f, np.ndarray)]
@@ -155,12 +157,17 @@ def main(training_name, observation_height, observation_width, episode_num, show
             print(f"Video saved: {video_path}")
         else:
             print("No valid frames recorded, skipping video saving.")
+    print(f"Success rate: {success_num}/{episode_num} ({(success_num / episode_num) * 100:.2f}%)")
+    # 成功率をtextファイルに保存
+    success_rate_file = output_directory / "success_rate.txt"
+    with open(success_rate_file, "w") as f:
+        f.write(f"Success rate: {success_num}/{episode_num} ({(success_num / episode_num) * 100:.2f}%)\n")
 
 if __name__ == "__main__":
     training_name = "act-test_0"
     observation_height = 480
     observation_width = 640
-    episode_num = 1
+    episode_num = 5
     show_viewer = True
     main(
         training_name=training_name,
