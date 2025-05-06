@@ -56,7 +56,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
     if task_name is None:
         print(f"Error: Unknown task name in training name '{training_name}'. Expected one of {task_list}.")
         return
-    gs.init(backend=gs.gpu, precision="32")
+    gs.init(backend=gs.cpu, precision="32")
     env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
     print("Policy Input Features:", policy.config.input_features)
     print("Environment Observation Space:", env.observation_space)
@@ -133,7 +133,9 @@ def main(training_name, observation_height, observation_width, episode_num, show
             if step >= limit:
                 print(f"Reached step limit ({limit}).")
                 break
-        env.close()
+            # 評価用（必要なければ消す
+            if reward > 0:
+                done = True
         total_reward = sum(rewards)
         print(f"Evaluation finished after {step} steps. Total reward: {total_reward:.4f}")
         if total_reward > 0:
@@ -157,6 +159,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
             print(f"Video saved: {video_path}")
         else:
             print("No valid frames recorded, skipping video saving.")
+    env.close()        
     print(f"Success rate: {success_num}/{episode_num} ({(success_num / episode_num) * 100:.2f}%)")
     # 成功率をtextファイルに保存
     success_rate_file = output_directory / "success_rate.txt"
@@ -167,12 +170,14 @@ if __name__ == "__main__":
     training_name = "act-test_0"
     observation_height = 480
     observation_width = 640
-    episode_num = 5
-    show_viewer = True
+    episode_num = 10
+    show_viewer = False
+    checkpoint_step = "100000"
     main(
         training_name=training_name,
         observation_height=observation_height,
         observation_width=observation_width,
         episode_num=episode_num,
-        show_viewer=show_viewer
+        show_viewer=show_viewer,
+        checkpoint_step=checkpoint_step,
     )

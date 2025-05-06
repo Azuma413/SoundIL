@@ -10,7 +10,7 @@ import os
 import numpy as np
 from PIL import Image
 
-def expert_policy(env, stage, step_i):
+def expert_policy(env, stage):
     task = env._env
     cube_pos = task.cubeA.get_pos().cpu().numpy()
     box_pos = task.box.get_pos().cpu().numpy()
@@ -78,7 +78,7 @@ def initialize_dataset(task, height, width):
     return lerobot_dataset
 
 def main(task, stage_dict, observation_height=480, observation_width=640, episode_num=1, show_viewer=False):
-    gs.init(backend=gs.gpu, precision="32")
+    gs.init(backend=gs.cpu, precision="32") # cpuの方が早い？
     env = None
     dataset = initialize_dataset(task, observation_height, observation_width)
     if task == "sound":
@@ -97,8 +97,8 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
         for stage in stage_dict.keys():
             print(f"  Stage: {stage}")
             for t in range(stage_dict[stage]):
-                action = expert_policy(env, stage, t)
-                obs, reward, done, _, info = env.step(action)
+                action = expert_policy(env, stage)
+                obs, reward, _, _, _ = env.step(action)
                 states.append(obs["agent_pos"])
                 images_front.append(obs["front"])
                 images_side.append(obs["side"])
@@ -107,7 +107,7 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
                 if reward > 0:
                     reward_greater_than_zero = True
         # デバッグ用
-        env.save_video(file_name=f"video", fps=30)
+        # env.save_video(file_name=f"video", fps=30)
 
         if not reward_greater_than_zero:
             print(f"🚫 Skipping episode {ep+1} — reward was always 0")
@@ -160,4 +160,4 @@ if __name__ == "__main__":
         "stabilize_box": 60, # cubeを箱の上で安定させる
         "release": 60, # cubeを離す
     }
-    main(task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=1, show_viewer=False)
+    main(task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=100, show_viewer=False)

@@ -181,6 +181,10 @@ python lerobot/lerobot/scripts/control_robot.py \
 ```bash
 uv run src/make_sim_dataset.py
 ```
+`libEGL warning: failed to open /dev/dri/renderD128: Permission denied`という表示が出る場合は、以下を実行
+```bash
+sudo usermod -aG render $USER
+```
 
 ## 学習の実行
 先にwandbにログインしておく
