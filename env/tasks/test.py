@@ -73,6 +73,7 @@ class TestTask:
             fov=20,
             GUI=False
         )
+        
         # サウンドカメラを追加
         self.sound_cam = DummyCamera(
             self.cubeA,
@@ -94,8 +95,8 @@ class TestTask:
         })
     
     def set_random_state(self, target, x_range, y_range, z):
-        x = self._random.uniform(x_range[0], x_range[1])
-        y = self._random.uniform(y_range[0], y_range[1])
+        x = np.random.uniform(x_range[0], x_range[1])
+        y = np.random.uniform(y_range[0], y_range[1])
         z = z
         pos_tensor = torch.tensor([x, y, z], dtype=torch.float32, device=gs.device)
         quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
@@ -103,16 +104,18 @@ class TestTask:
         target.set_quat(quat_tensor)
     
     def reset(self):
-        # CubeAの位置をランダムに設定
-        while self.compute_reward() == 1.0:
-            self.set_random_state(self.cubeA, (0.3, 0.7), (-0.3, 0.3), 0.025)
-        # CubeBの位置をランダムに設定
-        self.set_random_state(self.cubeB, (0.3, 0.7), (-0.3, 0.3), 0.025)
         # 箱を初期位置に設定
         pos_tensor = torch.tensor([0.5, 0.0, 0.0], dtype=torch.float32, device=gs.device)
         quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
         self.box.set_pos(pos_tensor)
         self.box.set_quat(quat_tensor)
+        # CubeAの位置をランダムに設定
+        self.set_random_state(self.cubeA, (0.3, 0.7), (-0.3, 0.3), 0.04) # 1回は必ず呼び出す
+        while self.compute_reward() == 1.0:
+            print("CubeA is in the box, resetting position...")
+            self.set_random_state(self.cubeA, (0.3, 0.7), (-0.3, 0.3), 0.04)
+        # CubeBの位置をランダムに設定
+        self.set_random_state(self.cubeB, (0.3, 0.7), (-0.3, 0.3), 0.04)
         # フランカロボットを初期位置にリセット
         qpos = np.array([0.0, -0.4, 0.0, -2.2, 0.0, 2.0, 0.8, 0.04, 0.04])
         qpos_tensor = torch.tensor(qpos, dtype=torch.float32, device=gs.device)
@@ -213,18 +216,19 @@ class DummyCamera:
 
 if __name__ == "__main__":
     import cv2
+    gs.init(backend=gs.gpu, precision="32")
     task = TestTask(observation_height=480, observation_width=640, show_viewer=False)
     task.reset()
-    for _ in range(3):
+    for _ in range(100):
         action = np.random.uniform(-1.0, 1.0, size=(AGENT_DIM,))
         task.step(action)
     # 最後の画像を保存
-    obs = task.get_obs()
-    for key, value in obs.items():
-        if key == "agent_pos" or key == "sound":
-            continue
-        # rgbの入れ替え
-        if value.shape[2] == 3:
-            value = cv2.cvtColor(value, cv2.COLOR_RGB2BGR)
-        print(f"{key}: {value.shape}")
-        cv2.imwrite(f"{key}.png", value)
+    # obs = task.get_obs()
+    # for key, value in obs.items():
+    #     if key == "agent_pos" or key == "sound":
+    #         continue
+    #     # rgbの入れ替え
+    #     if value.shape[2] == 3:
+    #         value = cv2.cvtColor(value, cv2.COLOR_RGB2BGR)
+    #     print(f"{key}: {value.shape}")
+    #     cv2.imwrite(f"{key}.png", value)

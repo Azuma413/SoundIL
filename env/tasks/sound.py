@@ -105,16 +105,18 @@ class SoundTask:
         target.set_quat(quat_tensor)
     
     def reset(self):
-        # CubeAの位置をランダムに設定
-        while self.compute_reward() == 1.0:
-            self.set_random_state(self.cubeA, (0.3, 0.7), (-0.3, 0.3), 0.025)
-        # CubeBの位置をランダムに設定
-        self.set_random_state(self.cubeB, (0.3, 0.7), (-0.3, 0.3), 0.025)
         # 箱を初期位置に設定
         pos_tensor = torch.tensor([0.5, 0.0, 0.0], dtype=torch.float32, device=gs.device)
         quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
         self.box.set_pos(pos_tensor)
         self.box.set_quat(quat_tensor)
+        # CubeAの位置をランダムに設定
+        self.set_random_state(self.cubeA, (0.3, 0.7), (-0.3, 0.3), 0.04) # 1回は必ず呼び出す
+        while self.compute_reward() == 1.0:
+            print("CubeA is in the box, resetting position...")
+            self.set_random_state(self.cubeA, (0.3, 0.7), (-0.3, 0.3), 0.04)
+        # CubeBの位置をランダムに設定
+        self.set_random_state(self.cubeB, (0.3, 0.7), (-0.3, 0.3), 0.04)
         # フランカロボットを初期位置にリセット
         qpos = np.array([0.0, -0.4, 0.0, -2.2, 0.0, 2.0, 0.8, 0.04, 0.04])
         qpos_tensor = torch.tensor(qpos, dtype=torch.float32, device=gs.device)
@@ -244,55 +246,69 @@ class SoundCamera:
         sound_pos = self.target.get_pos() if self.target is not None else torch.tensor([0.5, 0.3, 0.1])
         sound_image = []
         for i in range(3):
-            aroom = pra.Room.from_corners(
-                self.corners,
-                fs=self.fs,
-                materials=None,
-                max_order=3,
-                sigma2_awgn=10**(1/2) / (4 * np.pi * 2)**2,
-                air_absorption=True,
-            )
-            aroom.extrude(3.0) # 部屋の高さを3mに設定
-            # マイクロフォンアレイを追加
-            aroom.add_microphone_array(
-                np.concatenate(
-                    ( # Add parentheses here
-                        pra.circular_2D_array(center=[self.mic_pos[i][0], self.mic_pos[i][1]], M=8, phi0=0, radius=0.035),
-                        np.ones((1, 8)) * self.mic_pos[i][2]
-                    ), # Add parentheses here
-                    axis=0,
-                ),
-            )
-            aroom.add_source(
-                sound_pos.cpu().numpy(),
-                signal=np.random.randn(self.fs), # 1秒間のホワイトノイズ
-                delay=0,
-            )
-            aroom.simulate()
-            X = pra.transform.stft.analysis(aroom.mic_array.signals.T, self.nfft, self.nfft // 2)
-            X = X.transpose([2, 1, 0])
-            # DOAの計算
-            doa = pra.doa.algorithms['MUSIC'](aroom.mic_array.R, self.fs, self.nfft, c=343., num_src=1, max_four=4)
-            doa.locate_sources(X, freq_range=self.freq_range)
-            spatial_resp = doa.grid.values * 25
-            # 画像上の各pixelのマイクロフォンアレイからの角度を計算してanglesに格納
-            mic_coord = [int((0.8 - self.mic_pos[i][0])*self.observation_height/0.6), int((0.4 + self.mic_pos[i][1])*self.observation_width/0.8)]
-            points = np.array(np.meshgrid(
-                np.arange(self.observation_height),
-                np.arange(self.observation_width),
-            )).T.reshape(-1, 2)
-            angles = (np.arctan2(points[:, 0] - mic_coord[0], points[:, 1] - mic_coord[1]) * 180 / np.pi + 90) % 360
-            sound_map = np.zeros((self.observation_height, self.observation_width))
-            for i, angle in enumerate(angles):
-                sound_map[points[i, 0], points[i, 1]] = spatial_resp[int(angle)]
-            sound_image.append(sound_map)
-        sound_image = np.array(sound_image)
+            try:
+                aroom = pra.Room.from_corners(
+                    self.corners,
+                    fs=self.fs,
+                    materials=None,
+                    max_order=3,
+                    sigma2_awgn=10**(1/2) / (4 * np.pi * 2)**2,
+                    air_absorption=True,
+                )
+                aroom.extrude(3.0) # 部屋の高さを3mに設定
+                # マイクロフォンアレイを追加
+                aroom.add_microphone_array(
+                    np.concatenate(
+                        ( # Add parentheses here
+                            pra.circular_2D_array(center=[self.mic_pos[i][0], self.mic_pos[i][1]], M=8, phi0=0, radius=0.035),
+                            np.ones((1, 8)) * self.mic_pos[i][2]
+                        ), # Add parentheses here
+                        axis=0,
+                    ),
+                )
+                aroom.add_source(
+                    sound_pos.cpu().numpy(),
+                    signal=np.random.randn(self.fs), # 1秒間のホワイトノイズ
+                    delay=0,
+                )
+                aroom.simulate()
+                X = pra.transform.stft.analysis(aroom.mic_array.signals.T, self.nfft, self.nfft // 2)
+                X = X.transpose([2, 1, 0])
+                # DOAの計算
+                doa = pra.doa.algorithms['MUSIC'](aroom.mic_array.R, self.fs, self.nfft, c=343., num_src=1, max_four=4)
+                doa.locate_sources(X, freq_range=self.freq_range)
+                spatial_resp = doa.grid.values * 25
+                # 画像上の各pixelのマイクロフォンアレイからの角度を計算してanglesに格納
+                mic_coord = [int((0.8 - self.mic_pos[i][0])*self.observation_height/0.6), int((0.4 + self.mic_pos[i][1])*self.observation_width/0.8)]
+                points = np.array(np.meshgrid(
+                    np.arange(self.observation_height),
+                    np.arange(self.observation_width),
+                )).T.reshape(-1, 2)
+                angles = (np.arctan2(points[:, 0] - mic_coord[0], points[:, 1] - mic_coord[1]) * 180 / np.pi + 90) % 360
+                sound_map = np.zeros((self.observation_height, self.observation_width))
+                for j, angle in enumerate(angles): # Changed loop variable from i to j to avoid conflict
+                    sound_map[points[j, 0], points[j, 1]] = spatial_resp[int(angle)]
+                sound_image.append(sound_map)
+            except ValueError as e:
+                if "The source must be added inside the room." in str(e):
+                    print(f"Warning: Sound source is outside the room. Skipping sound simulation for mic {i}. Error: {e}")
+                    sound_image.append(np.zeros((self.observation_height, self.observation_width)))
+                else:
+                    raise e # Re-raise other ValueErrors
+
+        if not sound_image: # Handle case where all simulations failed
+            print("Warning: All sound simulations failed. Returning zero array.")
+            sound_image_array = np.zeros((self.observation_height, self.observation_width, 3), dtype=np.uint8)
+            self.frames.append(sound_image_array)
+            return sound_image_array, None
+
+        sound_image_array = np.array(sound_image)
         # y軸を反転
-        sound_image = np.flip(sound_image, axis=2)
-        sound_image = np.clip(sound_image, 0, 255).astype(np.uint8)
-        sound_image = np.transpose(sound_image, (1, 2, 0))
-        self.frames.append(sound_image)
-        return sound_image, None
+        sound_image_array = np.flip(sound_image_array, axis=2)
+        sound_image_array = np.clip(sound_image_array, 0, 255).astype(np.uint8)
+        sound_image_array = np.transpose(sound_image_array, (1, 2, 0))
+        self.frames.append(sound_image_array)
+        return sound_image_array, None
 
 if __name__ == "__main__":
     # SondCameraのテスト

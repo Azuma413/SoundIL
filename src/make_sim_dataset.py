@@ -78,7 +78,7 @@ def initialize_dataset(task, height, width):
     return lerobot_dataset
 
 def main(task, stage_dict, observation_height=480, observation_width=640, episode_num=1, show_viewer=False):
-    gs.init(backend=gs.cpu, precision="32") # cpuの方が早い？
+    gs.init(backend=gs.gpu, precision="32") # cpuの方が早い？
     env = None
     dataset = initialize_dataset(task, observation_height, observation_width)
     if task == "sound":
@@ -160,4 +160,4 @@ if __name__ == "__main__":
         "stabilize_box": 60, # cubeを箱の上で安定させる
         "release": 60, # cubeを離す
     }
-    main(task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=100, show_viewer=False)
+    main(task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=1, show_viewer=False)

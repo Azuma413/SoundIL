@@ -170,9 +170,9 @@ if __name__ == "__main__":
     training_name = "act-test_0"
     observation_height = 480
     observation_width = 640
-    episode_num = 10
+    episode_num = 20
     show_viewer = False
-    checkpoint_step = "100000"
+    checkpoint_step = "last"
     main(
         training_name=training_name,
         observation_height=observation_height,
