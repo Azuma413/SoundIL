@@ -13,6 +13,45 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from env.genesis_env import GenesisEnv
 
+def process_image_for_video(image_array, target_height, target_width):
+    """Process an image array for video recording, ensuring it's HWC, RGB, uint8."""
+    if image_array is None:
+        # Return a black frame if the image is missing
+        return np.zeros((target_height, target_width, 3), dtype=np.uint8)
+
+    # Ensure image is HWC
+    if image_array.ndim == 2:  # Grayscale (H, W)
+        image_array = np.stack((image_array,) * 3, axis=-1) # Convert to (H, W, 3)
+    elif image_array.ndim == 3 and image_array.shape[0] == 3: # CHW
+        image_array = image_array.transpose(1, 2, 0) # Convert to (H, W, C)
+
+    # Ensure 3 channels (RGB)
+    if image_array.shape[2] == 1:  # Grayscale with channel dim
+        image_array = np.concatenate([image_array] * 3, axis=-1)
+    elif image_array.shape[2] == 4:  # RGBA
+        image_array = image_array[..., :3] # Keep only RGB
+
+    # Ensure uint8
+    if image_array.dtype != np.uint8:
+        if np.issubdtype(image_array.dtype, np.floating):
+            image_array = (image_array * 255).clip(0, 255)
+        image_array = image_array.astype(np.uint8)
+    
+    # Resize if necessary - assuming individual feeds are already observation_height x observation_width
+    # If individual feeds can have varying sizes, resizing (e.g. with cv2) would be needed here
+    # For this implementation, we assume they match target_height and target_width.
+    if image_array.shape[0] != target_height or image_array.shape[1] != target_width:
+        # This case should ideally not happen if inputs are consistent
+        # If it does, one might add resizing:
+        # import cv2
+        # image_array = cv2.resize(image_array, (target_width, target_height))
+        # For now, create a black frame of the target size if dimensions mismatch,
+        # or one could raise an error.
+        print(f"Warning: Image shape {image_array.shape} mismatch with target {target_height}x{target_width}. Using black frame.")
+        return np.zeros((target_height, target_width, 3), dtype=np.uint8)
+        
+    return image_array
+
 def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last"):
     policy_list = ["act", "diffusion", "pi0", "tdmpc", "vqbet"]
     task_list = ["test", "sound"]
@@ -63,15 +102,33 @@ def main(training_name, observation_height, observation_width, episode_num, show
     print("Policy Output Features:", policy.config.output_features)
     print("Environment Action Space:", env.action_space)
     success_num = 0
+
+    combined_video_h = observation_height * 2
+    combined_video_w = observation_width * 2
+
     for ep in range(episode_num):
         print(f"\n=== Episode {ep+1} ===")
         policy.reset()
         numpy_observation, _ = env.reset()
         rewards = []
-        frames = []
-        frame = env.render()
-        if frame is not None:
-            frames.append(frame)
+        frames = [] # Stores combined frames
+
+        # Process initial observation for video
+        front_img_obs = numpy_observation.get("front")
+        side_img_obs = numpy_observation.get("side")
+        sound_img_obs = numpy_observation.get("sound")
+
+        front_video_img = process_image_for_video(front_img_obs, observation_height, observation_width)
+        side_video_img = process_image_for_video(side_img_obs, observation_height, observation_width)
+        sound_video_img = process_image_for_video(sound_img_obs, observation_height, observation_width)
+
+        combined_frame = np.zeros((combined_video_h, combined_video_w, 3), dtype=np.uint8)
+        combined_frame[0:observation_height, 0:observation_width] = front_video_img
+        combined_frame[0:observation_height, observation_width:combined_video_w] = side_video_img
+        sound_start_w = (combined_video_w - observation_width) // 2
+        combined_frame[observation_height:combined_video_h, sound_start_w : sound_start_w + observation_width] = sound_video_img
+        frames.append(combined_frame)
+
         step = 0
         done = False
         limit = 600
@@ -125,9 +182,23 @@ def main(training_name, observation_height, observation_width, episode_num, show
             numpy_observation, reward, terminated, truncated, info = env.step(numpy_action)
             print(f"Step: {step}, Reward: {reward:.4f}, Terminated: {terminated}, Truncated: {truncated}")
             rewards.append(reward)
-            frame = env.render()
-            if frame is not None:
-                frames.append(frame)
+
+            # Process current observation for video and add to frames list
+            front_img_obs = numpy_observation.get("front")
+            side_img_obs = numpy_observation.get("side")
+            sound_img_obs = numpy_observation.get("sound")
+
+            front_video_img = process_image_for_video(front_img_obs, observation_height, observation_width)
+            side_video_img = process_image_for_video(side_img_obs, observation_height, observation_width)
+            sound_video_img = process_image_for_video(sound_img_obs, observation_height, observation_width)
+
+            current_combined_frame = np.zeros((combined_video_h, combined_video_w, 3), dtype=np.uint8)
+            current_combined_frame[0:observation_height, 0:observation_width] = front_video_img
+            current_combined_frame[0:observation_height, observation_width:combined_video_w] = side_video_img
+            sound_start_w = (combined_video_w - observation_width) // 2
+            current_combined_frame[observation_height:combined_video_h, sound_start_w : sound_start_w + observation_width] = sound_video_img
+            frames.append(current_combined_frame)
+            
             done = terminated or truncated
             step += 1
             if step >= limit:
@@ -147,16 +218,39 @@ def main(training_name, observation_height, observation_width, episode_num, show
         if valid_frames:
             fps = env.metadata.get("render_fps", 30)
             video_path = output_directory / f"rollout_ep{ep+1}.mp4"
-            if not all(f.dtype == np.uint8 for f in valid_frames):
-                valid_frames = [(f * 255).clip(0, 255).astype(np.uint8) if np.issubdtype(f.dtype, np.floating) else f.astype(np.uint8) for f in valid_frames]
-            first_shape = valid_frames[0].shape
-            if not all(f.shape == first_shape for f in valid_frames):
-                print("Warning: Frame shapes are inconsistent. Video may be corrupted.")
-            try:
-                imageio.mimsave(str(video_path), np.stack(valid_frames), fps=fps, plugin='pyav', output_params=['-pix_fmt', 'yuv420p'])
-            except Exception:
-                imageio.mimsave(str(video_path), np.stack(valid_frames), fps=fps)
-            print(f"Video saved: {video_path}")
+            
+            # Ensure all frames are uint8, HWC, and have the correct combined shape
+            processed_valid_frames = []
+            for f_val in valid_frames:
+                if f_val.shape != (combined_video_h, combined_video_w, 3):
+                    print(f"Warning: Frame shape is {f_val.shape}, expected {(combined_video_h, combined_video_w, 3)}. Skipping this frame for video.")
+                    # Optionally, create a black frame or resize, but skipping is safer for now
+                    # to avoid video corruption if a frame is fundamentally broken.
+                    continue 
+                if f_val.dtype != np.uint8:
+                     f_val = f_val.astype(np.uint8) # Should be handled by process_image_for_video already
+                processed_valid_frames.append(f_val)
+            
+            valid_frames = processed_valid_frames
+
+            if not valid_frames:
+                print("No valid frames with correct dimensions found after processing, skipping video saving.")
+            else:
+                first_shape = valid_frames[0].shape
+                if not all(f.shape == first_shape for f in valid_frames):
+                    # This check might be redundant if the loop above filters correctly, but good for safety
+                    print(f"Warning: Frame shapes are inconsistent after processing. First frame: {first_shape}. Video may be corrupted.")
+                
+                try:
+                    imageio.mimsave(str(video_path), np.stack(valid_frames), fps=fps, plugin='pyav', output_params=['-pix_fmt', 'yuv420p'])
+                except Exception as e1:
+                    print(f"Error saving with pyav plugin: {e1}. Trying default imageio plugin.")
+                    try:
+                        imageio.mimsave(str(video_path), np.stack(valid_frames), fps=fps)
+                    except Exception as e2:
+                        print(f"Error saving video with default plugin: {e2}. Video saving failed for episode {ep+1}.")
+                else:
+                    print(f"Video saved: {video_path}")
         else:
             print("No valid frames recorded, skipping video saving.")
     env.close()        
@@ -167,12 +261,12 @@ def main(training_name, observation_height, observation_width, episode_num, show
         f.write(f"Success rate: {success_num}/{episode_num} ({(success_num / episode_num) * 100:.2f}%)\n")
 
 if __name__ == "__main__":
-    training_name = "act-test_0"
+    training_name = "act-sound_0"
     observation_height = 480
     observation_width = 640
-    episode_num = 20
+    episode_num = 3
     show_viewer = False
-    checkpoint_step = "last"
+    checkpoint_step = "100000"
     main(
         training_name=training_name,
         observation_height=observation_height,
