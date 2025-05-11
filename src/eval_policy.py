@@ -54,7 +54,7 @@ def process_image_for_video(image_array, target_height, target_width):
 
 def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last"):
     policy_list = ["act", "diffusion", "pi0", "tdmpc", "vqbet"]
-    task_list = ["test", "sound"]
+    task_list = ["test", "sound", "dummy"]
     output_directory = Path(f"outputs/eval/{training_name}_{checkpoint_step}")
     output_directory.mkdir(parents=True, exist_ok=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -96,7 +96,10 @@ def main(training_name, observation_height, observation_width, episode_num, show
         print(f"Error: Unknown task name in training name '{training_name}'. Expected one of {task_list}.")
         return
     gs.init(backend=gs.cpu, precision="32")
-    env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
+    if task_name == "dummy":
+        env = GenesisEnv(task="sound", observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
+    else:
+        env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
     print("Policy Input Features:", policy.config.input_features)
     print("Environment Observation Space:", env.observation_space)
     print("Policy Output Features:", policy.config.output_features)
@@ -167,6 +170,8 @@ def main(training_name, observation_height, observation_width, episode_num, show
                     elif tensor_img.ndim == 2:
                         tensor_img = tensor_img.unsqueeze(0)
                     observation[key] = tensor_img.to(device).unsqueeze(0)
+                    if task_name == "dummy":
+                        observation[key] = torch.zeros_like(observation[key])
                 else:
                     print(f"Warning: Unsupported input feature '{key}'. Skipping.")
             with torch.inference_mode():
@@ -187,6 +192,8 @@ def main(training_name, observation_height, observation_width, episode_num, show
             front_img_obs = numpy_observation.get("front")
             side_img_obs = numpy_observation.get("side")
             sound_img_obs = numpy_observation.get("sound")
+            if task_name == "dummy":
+                sound_img_obs = np.zeros_like(sound_img_obs)
 
             front_video_img = process_image_for_video(front_img_obs, observation_height, observation_width)
             side_video_img = process_image_for_video(side_img_obs, observation_height, observation_width)
@@ -261,12 +268,12 @@ def main(training_name, observation_height, observation_width, episode_num, show
         f.write(f"Success rate: {success_num}/{episode_num} ({(success_num / episode_num) * 100:.2f}%)\n")
 
 if __name__ == "__main__":
-    training_name = "act-sound_0"
+    training_name = "diffusion-sound_0"
     observation_height = 480
     observation_width = 640
     episode_num = 3
     show_viewer = False
-    checkpoint_step = "100000"
+    checkpoint_step = "last"
     main(
         training_name=training_name,
         observation_height=observation_height,

@@ -207,6 +207,11 @@ uv run lerobot/lerobot/scripts/train.py \
   --batch_size=8 \
   --steps=100000
 ```
+- ※pi0を使う場合は以下の手順が必要
+[こちら](https://huggingface.co/google/paligemma-3b-pt-224)にアクセスして、利用規約に賛同する。
+```bash
+uv run huggingface-cli login
+```
 - stepsとepochの関係
 例えば30fpsで60秒のデータセットを50個用意した場合、全体で90000フレームになるので1epoch=90000sampleとなる。
 ここでbatch_sizeを8としていた場合、1stepの学習で8sampleが消費されるため、1epoch=1125stepsとなる。
@@ -276,6 +281,7 @@ export LD_LIBRARY_PATH="/usr/lib/wsl/lib:$LD_LIBRARY_PATH"
 - [x] データセットを利用してDPの学習を行う
 - [x] 現実で動かしてみる
 - [x] eval_policy.pyの出力を、３つの画像出力を統合したものにする
+- [ ] dummyのeval用環境を作る
 - [ ] MRによるマスタースレーブ検証用に、aloha用のGenesis環境を作る
 - [ ] aloha環境に布を配置する
 - [ ] cubeBが最初から箱に入っている問題に対処する
