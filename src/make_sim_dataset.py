@@ -10,9 +10,12 @@ import os
 import numpy as np
 from PIL import Image
 
+IS_TWO_SOUND = False
+
 def expert_policy(env, stage):
     task = env._env
     cube_pos = task.cubeA.get_pos().cpu().numpy()
+    cube_pos2 = task.cubeB.get_pos().cpu().numpy()
     box_pos = task.box.get_pos().cpu().numpy()
     # motors_dof = task.motors_dof
     # fingers_dof = task.fingers_dof
@@ -33,14 +36,32 @@ def expert_policy(env, stage):
     elif stage == "lift":
         target_pos = np.array([cube_pos[0], cube_pos[1], 0.25])
         grip = np.array([finder_pos, finder_pos])  # keep closed
-    elif stage == "to_box":
+    elif stage == "hover2":
+        target_pos = cube_pos2 + np.array([0.0, 0.0, 0.2])  # hover safely
+        grip = np.array([0.04, 0.04])  # open
+    elif stage == "stabilize2":
+        target_pos = cube_pos2 + np.array([0.0, 0.0, 0.1])
+        grip = np.array([0.04, 0.04])  # still open
+    elif stage == "grasp2":
+        target_pos = cube_pos2 + np.array([0.0, 0.0, 0.1])  # lower slightly
+        grip = np.array([finder_pos, finder_pos])  # close grip
+    elif stage == "lift2":
+        target_pos = np.array([cube_pos2[0], cube_pos2[1], 0.25])
+        grip = np.array([finder_pos, finder_pos])  # keep closed
+    elif stage == "to_box" or stage == "to_box2":
         target_pos = box_pos + np.array([0.0, 0.0, 0.25])
         grip = np.array([finder_pos, finder_pos])
-    elif stage == "stabilize_box":
+    elif stage == "stabilize_box" or stage == "stabilize_box2":
         target_pos = box_pos + np.array([0.0, 0.0, 0.25])
         grip = np.array([finder_pos, finder_pos])
-    elif stage == "release":
+    elif stage == "release" and not IS_TWO_SOUND:
         target_pos = box_pos + np.array([0.0, 0.0, 0.25])
+        grip = np.array([0.04, 0.04])
+    elif stage == "release" and IS_TWO_SOUND:
+        target_pos = box_pos + np.array([0.0, 0.05, 0.25])
+        grip = np.array([0.04, 0.04])
+    elif stage == "release2":
+        target_pos = box_pos + np.array([0.0, -0.05, 0.25])
         grip = np.array([0.04, 0.04])
     else:
         raise ValueError(f"Unknown stage: {stage}")
@@ -104,7 +125,9 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
                 images_side.append(obs["side"])
                 images_sound.append(obs["sound"])
                 actions.append(action)
-                if reward > 0:
+                if reward > 0 and not IS_TWO_SOUND:
+                    reward_greater_than_zero = True
+                elif reward > 1 and IS_TWO_SOUND:
                     reward_greater_than_zero = True
         # デバッグ用
         # env.save_video(file_name=f"video", fps=30)
@@ -149,15 +172,34 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
     env.close()
 
 if __name__ == "__main__":
-    task = "test" # "test" or "sound"
+    task = "marker_2sound" # [test, sound, marker_sound, weighted_sound, 2sound, marker_2sound, weighted_2sound]
     # 20秒くらいのタスクを想定 → 合計600フレーム
-    stage_dict = {
-        "hover": 100, # cubeの上に手を持っていく
-        "stabilize": 60, # cubeの上で手を安定させる
-        "grasp": 20, # cubeを掴む
-        "lift": 60, # cubeを持ち上げる
-        "to_box": 100, # cubeを箱の上に持っていく
-        "stabilize_box": 60, # cubeを箱の上で安定させる
-        "release": 60, # cubeを離す
-    }
+    if "2" in task: # 2sound系のタスク
+        IS_TWO_SOUND = True
+        stage_dict = {
+            "hover": 100, # cubeの上に手を持っていく
+            "stabilize": 40, # cubeの上で手を安定させる
+            "grasp": 20, # cubeを掴む
+            "lift": 50, # cubeを持ち上げる
+            "to_box": 60, # cubeを箱の上に持っていく
+            "stabilize_box": 20, # cubeを箱の上で安定させる
+            "release": 60, # cubeを離す
+            "hover2": 100, # cubeの上に手を持っていく
+            "stabilize2": 40, # cubeの上で手を安定させる
+            "grasp2": 20, # cubeを掴む
+            "lift2": 50, # cubeを持ち上げる
+            "to_box2": 60, # cubeを箱の上に持っていく
+            "stabilize_box2": 20, # cubeを箱の上で安定させる
+            "release2": 60, # cubeを離す
+        }
+    else:
+        stage_dict = {
+            "hover": 100, # cubeの上に手を持っていく
+            "stabilize": 40, # cubeの上で手を安定させる
+            "grasp": 20, # cubeを掴む
+            "lift": 50, # cubeを持ち上げる
+            "to_box": 60, # cubeを箱の上に持っていく
+            "stabilize_box": 20, # cubeを箱の上で安定させる
+            "release": 60, # cubeを離す
+        }
     main(task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=1, show_viewer=False)

@@ -19,12 +19,12 @@ joints_name = (
 )
 AGENT_DIM = len(joints_name)
 
-class SoundTask:
+class TwoSoundTask:
     def __init__(self, observation_height, observation_width, show_viewer=False, sound_camera="default"):
         self.observation_height = observation_height
         self.observation_width = observation_width
         self._random = np.random.RandomState()
-        self.box_scale = 1.0
+        self.box_scale = 1.5
         self.sound_camera = sound_camera.lower()
         self._build_scene(show_viewer)
         self.observation_space = self._make_obs_space()
@@ -59,6 +59,11 @@ class SoundTask:
             gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.35, 0.0, 0.025)),
             surface=gs.surfaces.Aluminium(color=(0.3, 0.7, 0.3))
         )
+        # キューブCを追加
+        self.cubeC = self.scene.add_entity(
+            gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.5, 0.2, 0.025)),
+            surface=gs.surfaces.Aluminium(color=(0.3, 0.7, 0.3))
+        )
         # 箱を追加
         self.box = self.scene.add_entity(gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.5, 0.0, 0.0), scale=self.box_scale))
         # フロントカメラを追加
@@ -81,18 +86,21 @@ class SoundTask:
         if self.sound_camera == "default":
             self.sound_cam = SoundCamera(
                 self.cubeA,
+                self.cubeB,
                 observation_height=self.observation_height,
                 observation_width=self.observation_width
             )
         elif self.sound_camera == "marker":
             self.sound_cam = MarkerSoundCamera(
                 self.cubeA,
+                self.cubeB,
                 observation_height=self.observation_height,
                 observation_width=self.observation_width
             )
         elif self.sound_camera == "weighted":
             self.sound_cam = WeightedSoundCamera(
                 self.cubeA,
+                self.cubeB,
                 observation_height=self.observation_height,
                 observation_width=self.observation_width,
                 weight=0.2
@@ -136,6 +144,11 @@ class SoundTask:
         while self.compute_reward(target="cubeB") == 1.0:
             print("CubeB is in the box, resetting position...")
             self.set_random_state(self.cubeB, (0.3, 0.7), (-0.3, 0.3), 0.04)
+        # CubeCの位置をランダムに設定
+        self.set_random_state(self.cubeC, (0.3, 0.7), (-0.3, 0.3), 0.04)
+        while self.compute_reward(target="cubeC") == 1.0:
+            print("CubeC is in the box, resetting position...")
+            self.set_random_state(self.cubeC, (0.3, 0.7), (-0.3, 0.3), 0.04)
         # フランカロボットを初期位置にリセット
         qpos = np.array([0.0, -0.4, 0.0, -2.2, 0.0, 2.0, 0.8, 0.04, 0.04])
         qpos_tensor = torch.tensor(qpos, dtype=torch.float32, device=gs.device)
@@ -173,7 +186,7 @@ class SoundTask:
         self.franka.control_dofs_position(action_tensor[:7], self.motors_dof)
         self.franka.control_dofs_position(action_tensor[7:], self.fingers_dof)
         self.scene.step()
-        reward = self.compute_reward()
+        reward = self.compute_reward() + self.compute_reward(target="cubeB")
         obs = self.get_obs()
         terminated = False
         truncated = False
@@ -186,6 +199,8 @@ class SoundTask:
             pos = self.cubeA.get_pos().cpu().numpy()
         elif target == "cubeB":
             pos = self.cubeB.get_pos().cpu().numpy()
+        elif target == "cubeC":
+            pos = self.cubeC.get_pos().cpu().numpy()
         box_pos = self.box.get_pos().cpu().numpy()
         box_size = np.array([0.1, 0.1, 0.05])*self.box_scale  # Boxのサイズを取得
         cube_in_box = (
@@ -225,8 +240,9 @@ class SoundTask:
         self.sound_cam.stop_recording(save_to_filename=f"{file_name}_sound.mp4", fps=fps)
 
 class SoundCamera:
-    def __init__(self, target, observation_height, observation_width):
-        self.target = target
+    def __init__(self, target1, target2, observation_height, observation_width):
+        self.target1 = target1
+        self.target2 = target2
         self.observation_height = observation_height
         self.observation_width = observation_width
         self.frames = []
@@ -264,8 +280,9 @@ class SoundCamera:
         self.frames = []
 
     def render(self):
-        # CubeAが音を発していると仮定して、画像を生成
-        sound_pos = self.target.get_pos() if self.target is not None else torch.tensor([0.5, 0.3, 0.1])
+        # CubeAとBが音を発していると仮定して、画像を生成
+        sound1_pos = self.target1.get_pos() if self.target1 is not None else torch.tensor([0.5, 0.3, 0.1])
+        sound2_pos = self.target2.get_pos() if self.target2 is not None else torch.tensor([0.5, -0.3, 0.1])
         sound_image = []
         for i in range(3):
             try:
@@ -289,7 +306,12 @@ class SoundCamera:
                     ),
                 )
                 aroom.add_source(
-                    sound_pos.cpu().numpy(),
+                    sound1_pos.cpu().numpy(),
+                    signal=np.random.randn(self.fs), # 1秒間のホワイトノイズ
+                    delay=0,
+                )
+                aroom.add_source(
+                    sound2_pos.cpu().numpy(),
                     signal=np.random.randn(self.fs), # 1秒間のホワイトノイズ
                     delay=0,
                 )
@@ -384,7 +406,7 @@ class WeightedSoundCamera(SoundCamera):
 
 if __name__ == "__main__":
     # SondCameraのテスト
-    sound_camera = SoundCamera(None, 480, 640)
+    sound_camera = SoundCamera(None, None, 480, 640)
     sound_camera.start_recording()
     for i in range(10):
         sound_pixels = sound_camera.render()[0]

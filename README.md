@@ -267,23 +267,12 @@ export LD_LIBRARY_PATH="/usr/lib/wsl/lib:$LD_LIBRARY_PATH"
 ```
 
 ## TODO
-- [x] ubuntu, wsl上にgenesisの可視化環境を作る
-- [x] SO-100のurdfをgenesisに読み込ませる
-- [x] [genesisとpyroomacausticsを組み合わせてgym環境を作成する](https://qiita.com/hbvcg00/items/473d5049dd3fe36d2fa3)
-- [x] [現実のマスターアームを組み立て、LeRobotで値を読み取れるようにする](https://note.com/npaka/n/nf41de358825d)
-- [x] データセット作成
-- [x] データセットを利用してDPの学習を行う
-- [x] 現実でデータセット作成環境を構築する
-- [x] 現実でデータセットを作成する
-- [x] データセットを利用してDPの学習を行う
-- [x] 現実で動かしてみる
-- [x] eval_policy.pyの出力を、３つの画像出力を統合したものにする
 - [ ] dummyのeval用環境を作る
 - [ ] MRによるマスタースレーブ検証用に、aloha用のGenesis環境を作る
 - [ ] aloha環境に布を配置する
-- [ ] cubeBが最初から箱に入っている問題に対処する
+- [x] cubeBが最初から箱に入っている問題に対処する
 - [ ] aloha制御用のMRソフトを開発する
-- [ ] サブモジュールをもとのリポジトリをフォークしたものに変更する
+- [x] サブモジュールをもとのリポジトリをフォークしたものに変更する
 - [ ] lerobot/lerobot/common/robot_devices/cameras/sound.pyの開発
 - [ ] 学習中の評価を取り入れた学習データの取得
 - [ ] 音を増やした環境の作成

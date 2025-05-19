@@ -22,6 +22,7 @@ class TestTask:
         self.observation_height = observation_height
         self.observation_width = observation_width
         self._random = np.random.RandomState()
+        self.box_scale = 1.0
         self._build_scene(show_viewer)
         self.observation_space = self._make_obs_space()
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(AGENT_DIM,), dtype=np.float32)
@@ -56,7 +57,7 @@ class TestTask:
             surface=gs.surfaces.Aluminium(color=(0.3, 0.3, 0.7))
         )
         # 箱を追加
-        self.box = self.scene.add_entity(gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.5, 0.0, 0.0)))
+        self.box = self.scene.add_entity(gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.5, 0.0, 0.0), scale=self.box_scale))
         # フロントカメラを追加
         self.front_cam = self.scene.add_camera(
             res=(self.observation_width, self.observation_height),
@@ -116,6 +117,9 @@ class TestTask:
             self.set_random_state(self.cubeA, (0.3, 0.7), (-0.3, 0.3), 0.04)
         # CubeBの位置をランダムに設定
         self.set_random_state(self.cubeB, (0.3, 0.7), (-0.3, 0.3), 0.04)
+        while self.compute_reward(target="cubeB") == 1.0:
+            print("CubeB is in the box, resetting position...")
+            self.set_random_state(self.cubeB, (0.3, 0.7), (-0.3, 0.3), 0.04)
         # フランカロボットを初期位置にリセット
         qpos = np.array([0.0, -0.4, 0.0, -2.2, 0.0, 2.0, 0.8, 0.04, 0.04])
         qpos_tensor = torch.tensor(qpos, dtype=torch.float32, device=gs.device)
@@ -160,17 +164,20 @@ class TestTask:
         info = {}
         return obs, reward, terminated, truncated, info
     
-    def compute_reward(self):
+    def compute_reward(self, target="cubeA"):
         # CubeAがboxの中にあるかどうかをチェック
-        cubeA_pos = self.cubeA.get_pos().cpu().numpy()
+        if target == "cubeA":
+            pos = self.cubeA.get_pos().cpu().numpy()
+        elif target == "cubeB":
+            pos = self.cubeB.get_pos().cpu().numpy()
         box_pos = self.box.get_pos().cpu().numpy()
-        box_size = np.array([0.1, 0.1, 0.05])
-        cubeA_in_box = (
-            (box_pos[0] - box_size[0] / 2 <= cubeA_pos[0] <= box_pos[0] + box_size[0] / 2) and
-            (box_pos[1] - box_size[1] / 2 <= cubeA_pos[1] <= box_pos[1] + box_size[1] / 2) and
-            (box_pos[2] <= cubeA_pos[2] <= box_pos[2] + box_size[2])
+        box_size = np.array([0.1, 0.1, 0.05])*self.box_scale  # Boxのサイズを取得
+        cube_in_box = (
+            (box_pos[0] - box_size[0] / 2 <= pos[0] <= box_pos[0] + box_size[0] / 2) and
+            (box_pos[1] - box_size[1] / 2 <= pos[1] <= box_pos[1] + box_size[1] / 2) and
+            (box_pos[2] <= pos[2] <= box_pos[2] + box_size[2])
         )
-        reward = 1.0 if cubeA_in_box else 0.0
+        reward = 1.0 if cube_in_box else 0.0
         return reward
 
     def get_obs(self):

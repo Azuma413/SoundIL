@@ -1,6 +1,7 @@
 import gymnasium as gym
 import warnings
 from env.tasks.sound import SoundTask
+from env.tasks.two_sound import TwoSoundTask
 from env.tasks.test import TestTask
 
 class GenesisEnv(gym.Env):
@@ -65,15 +66,52 @@ class GenesisEnv(gym.Env):
 
     def _make_env_task(self, task_name):
         if task_name == "sound":
+            task = SoundTask(
+                observation_height=self.observation_height,
+                observation_width=self.observation_width,
+                show_viewer=self.show_viewer,
+                sound_camera="default"
+            )
+        elif task_name == "marker_sound":
             task = SoundTask(observation_height=self.observation_height,
-                             observation_width=self.observation_width,
-                             show_viewer=self.show_viewer,
-                             )
+                observation_width=self.observation_width,
+                show_viewer=self.show_viewer,
+                sound_camera="marker"
+            )
+        elif task_name == "weighted_sound":
+            task = SoundTask(
+                observation_height=self.observation_height,
+                observation_width=self.observation_width,
+                show_viewer=self.show_viewer,
+                sound_camera="weighted"
+            )
+        elif task_name == "2sound":
+            task = TwoSoundTask(
+                observation_height=self.observation_height,
+                observation_width=self.observation_width,
+                show_viewer=self.show_viewer,
+                sound_camera="default"
+            )
+        elif task_name == "marker_2sound":
+            task = TwoSoundTask(
+                observation_height=self.observation_height,
+                observation_width=self.observation_width,
+                show_viewer=self.show_viewer,
+                sound_camera="marker"
+            )
+        elif task_name == "weighted_2sound":
+            task = TwoSoundTask(
+                observation_height=self.observation_height,
+                observation_width=self.observation_width,
+                show_viewer=self.show_viewer,
+                sound_camera="weighted"
+            )
         elif task_name == "test":
-            task = TestTask(observation_height=self.observation_height,
-                            observation_width=self.observation_width,
-                            show_viewer=self.show_viewer,
-                            )
+            task = TestTask(
+                observation_height=self.observation_height,
+                observation_width=self.observation_width,
+                show_viewer=self.show_viewer,
+            )
         else:
             raise NotImplementedError(task_name)
         return task
