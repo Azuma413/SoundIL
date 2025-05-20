@@ -266,6 +266,17 @@ export PATH="/usr/local/cuda/bin:$PATH"
 export LD_LIBRARY_PATH="/usr/lib/wsl/lib:$LD_LIBRARY_PATH"
 ```
 
+サーバーで長時間のタスクを実行するときはscreenが便利
+```bash
+screen
+
+uv run src/make_sim_dataset.py
+```
+`Ctrl+A`, `Ctrl+D`を押す。\
+`screen -r`でセッション復帰。\
+`screen -ls`でセッション確認。\
+`exit`でセッション終了
+
 ## TODO
 - [ ] dummyのeval用環境を作る
 - [ ] MRによるマスタースレーブ検証用に、aloha用のGenesis環境を作る
@@ -275,5 +286,5 @@ export LD_LIBRARY_PATH="/usr/lib/wsl/lib:$LD_LIBRARY_PATH"
 - [x] サブモジュールをもとのリポジトリをフォークしたものに変更する
 - [ ] lerobot/lerobot/common/robot_devices/cameras/sound.pyの開発
 - [ ] 学習中の評価を取り入れた学習データの取得
-- [ ] 音を増やした環境の作成
+- [x] 音を増やした環境の作成
 - [ ] eval policyで取得される画像を、もっと引いたものにする
