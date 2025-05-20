@@ -172,7 +172,7 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
     env.close()
 
 if __name__ == "__main__":
-    task = "sound" # [test, sound, marker_sound, weighted_sound, 2sound, marker_2sound, weighted_2sound]
+    task = "test" # [test, sound, marker_sound, weighted_sound, 2sound, marker_2sound, weighted_2sound]
     # 20秒くらいのタスクを想定 → 合計600フレーム
     if "2" in task: # 2sound系のタスク
         IS_TWO_SOUND = True
@@ -202,4 +202,4 @@ if __name__ == "__main__":
             "stabilize_box": 20, # cubeを箱の上で安定させる
             "release": 60, # cubeを離す
         }
-    main(task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=200, show_viewer=False)
+    main(task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=100, show_viewer=False)
