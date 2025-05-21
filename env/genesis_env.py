@@ -26,12 +26,14 @@ class GenesisEnv(gym.Env):
         self.observation_space = self._env.observation_space
         self.action_space = self._env.action_space
         self._max_episode_steps = 1000
+        self.step_count = 0
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         if seed is not None:
             self._env.seed(seed)
         # resetは obs, info を返す
+        self.step_count = 0
         observation, info = self._env.reset()
         # infoに is_success を追加 (初期値はFalse)
         info["is_success"] = False
@@ -42,6 +44,10 @@ class GenesisEnv(gym.Env):
         observation, reward, terminated, truncated, info = self._env.step(action)
         is_success = (reward == 1.0) # 報酬が1.0なら成功
         info["is_success"] = is_success
+        self.step_count += 1
+        if self.step_count >= self._max_episode_steps:
+            terminated = True
+            truncated = True
         return observation, reward, terminated, truncated, info
 
     def save_video(self, file_name: str = "save", fps=30):

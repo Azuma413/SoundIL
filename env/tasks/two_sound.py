@@ -21,6 +21,7 @@ AGENT_DIM = len(joints_name)
 
 class TwoSoundTask:
     def __init__(self, observation_height, observation_width, show_viewer=False, sound_camera="default"):
+        self.show_viewer = show_viewer
         self.observation_height = observation_height
         self.observation_width = observation_width
         self._random = np.random.RandomState()
@@ -129,6 +130,8 @@ class TwoSoundTask:
         target.set_quat(quat_tensor)
     
     def reset(self):
+        # メモリリークを防ぐために、シーンをリセット
+        self._build_scene(self.show_viewer)
         # 箱を初期位置に設定
         pos_tensor = torch.tensor([0.5, 0.0, 0.0], dtype=torch.float32, device=gs.device)
         quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
@@ -265,7 +268,7 @@ class SoundCamera:
         ]).T
 
     def start_recording(self):
-        pass
+        self.frames = []
 
     def stop_recording(self, save_to_filename, fps):
         sound_image = np.array(self.frames)
