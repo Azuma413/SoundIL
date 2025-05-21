@@ -90,9 +90,9 @@ class TestTask:
     def _make_obs_space(self):
         return spaces.Dict({
             "agent_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(AGENT_DIM,), dtype=np.float32),
-            "front": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
-            "side": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
-            "sound": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
+            "observation.images.front": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
+            "observation.images.side": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
+            "observation.images.sound": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
         })
     
     def set_random_state(self, target, x_range, y_range, z):
@@ -159,7 +159,7 @@ class TestTask:
         self.scene.step()
         reward = self.compute_reward()
         obs = self.get_obs()
-        terminated = False
+        terminated = True if reward == 1.0 else False
         truncated = False
         info = {}
         return obs, reward, terminated, truncated, info
@@ -197,9 +197,9 @@ class TestTask:
         assert sound_pixels.ndim == 3, f"sound_pixels shape {sound_pixels.shape} is not 3D (H, W, 3)"
         obs = {
             "agent_pos": agent_pos,
-            "front": front_pixels,
-            "side": side_pixels,
-            "sound": sound_pixels,
+            "observation.images.front": front_pixels,
+            "observation.images.side": side_pixels,
+            "observation.images.sound": sound_pixels,
         }
         return obs
 

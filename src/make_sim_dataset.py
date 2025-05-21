@@ -121,9 +121,9 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
                 action = expert_policy(env, stage)
                 obs, reward, _, _, _ = env.step(action)
                 states.append(obs["agent_pos"])
-                images_front.append(obs["front"])
-                images_side.append(obs["side"])
-                images_sound.append(obs["sound"])
+                images_front.append(obs["observation.images.front"])
+                images_side.append(obs["observation.images.side"])
+                images_sound.append(obs["observation.images.sound"])
                 actions.append(action)
                 if reward > 0 and not IS_TWO_SOUND:
                     reward_greater_than_zero = True

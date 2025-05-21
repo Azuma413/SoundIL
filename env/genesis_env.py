@@ -25,6 +25,7 @@ class GenesisEnv(gym.Env):
         self._env = self._make_env_task(self.task)
         self.observation_space = self._env.observation_space
         self.action_space = self._env.action_space
+        self._max_episode_steps = 1000
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
