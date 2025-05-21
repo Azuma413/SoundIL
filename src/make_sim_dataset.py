@@ -202,4 +202,4 @@ if __name__ == "__main__":
             "stabilize_box": 20, # cubeを箱の上で安定させる
             "release": 60, # cubeを離す
         }
-    main(task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=200, show_viewer=False)
+    main(task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=51, show_viewer=False)
