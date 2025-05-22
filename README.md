@@ -202,12 +202,12 @@ uv run lerobot/lerobot/scripts/train.py \
   --policy.device=cuda \
   --wandb.enable=true \
   --batch_size=8 \
-  --steps=500000 \
+  --steps=300000 \
   --env.type=test \
   --env.task=test \
   --eval_freq=2000 \
   --eval.n_episodes=20 \
-  --eval.batch_size=10
+  --eval.batch_size=1
 ```
 env.typeとenv.taskの関係については`lerobot/lerobot/common/envs/configs.py`を参照
 - ※pi0を使う場合は以下の手順が必要

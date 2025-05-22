@@ -21,6 +21,7 @@ AGENT_DIM = len(joints_name)
 
 class TwoSoundTask:
     def __init__(self, observation_height, observation_width, show_viewer=False, sound_camera="default"):
+        self.show_viewer = show_viewer
         self.observation_height = observation_height
         self.observation_width = observation_width
         self._random = np.random.RandomState()
@@ -114,9 +115,9 @@ class TwoSoundTask:
     def _make_obs_space(self):
         return spaces.Dict({
             "agent_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(AGENT_DIM,), dtype=np.float32),
-            "front": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
-            "side": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
-            "sound": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
+            "observation.images.front": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
+            "observation.images.side": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
+            "observation.images.sound": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
         })
     
     def set_random_state(self, target, x_range, y_range, z):
@@ -129,6 +130,8 @@ class TwoSoundTask:
         target.set_quat(quat_tensor)
     
     def reset(self):
+        # メモリリークを防ぐために、シーンをリセット
+        self._build_scene(self.show_viewer)
         # 箱を初期位置に設定
         pos_tensor = torch.tensor([0.5, 0.0, 0.0], dtype=torch.float32, device=gs.device)
         quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
@@ -188,7 +191,7 @@ class TwoSoundTask:
         self.scene.step()
         reward = self.compute_reward() + self.compute_reward(target="cubeB")
         obs = self.get_obs()
-        terminated = False
+        terminated = True if reward == 2.0 else False
         truncated = False
         info = {}
         return obs, reward, terminated, truncated, info
@@ -228,9 +231,9 @@ class TwoSoundTask:
         assert sound_pixels.ndim == 3, f"sound_pixels shape {sound_pixels.shape} is not 3D (H, W, 3)"
         obs = {
             "agent_pos": agent_pos,
-            "front": front_pixels,
-            "side": side_pixels,
-            "sound": sound_pixels,
+            "observation.images.front": front_pixels,
+            "observation.images.side": side_pixels,
+            "observation.images.sound": sound_pixels,
         }
         return obs
 
@@ -265,7 +268,7 @@ class SoundCamera:
         ]).T
 
     def start_recording(self):
-        pass
+        self.frames = []
 
     def stop_recording(self, save_to_filename, fps):
         sound_image = np.array(self.frames)
