@@ -205,8 +205,8 @@ uv run lerobot/lerobot/scripts/train.py \
   --steps=300000 \
   --env.type=test \
   --env.task=test \
-  --eval_freq=2000 \
-  --eval.n_episodes=20 \
+  --eval_freq=5000 \
+  --eval.n_episodes=10 \
   --eval.batch_size=1
 ```
 env.typeとenv.taskの関係については`lerobot/lerobot/common/envs/configs.py`を参照

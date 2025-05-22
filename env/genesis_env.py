@@ -25,7 +25,7 @@ class GenesisEnv(gym.Env):
         self._env = self._make_env_task(self.task)
         self.observation_space = self._env.observation_space
         self.action_space = self._env.action_space
-        self._max_episode_steps = 1000
+        self._max_episode_steps = 500 if "2" in task else 1000
         self.step_count = 0
 
     def reset(self, seed=None, options=None):
@@ -64,9 +64,9 @@ class GenesisEnv(gym.Env):
         return self._env.franka
 
     def render(self):
-        if "front" in self.observation_space.spaces:
+        if "observation.images.front" in self.observation_space.spaces:
             obs = self.get_obs()
-            return obs["front"]
+            return obs["observation.images.front"]
         else:
             warnings.warn("front observation is not enabled, cannot render.")
             return None

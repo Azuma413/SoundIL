@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 class SoundEnv(EnvConfig):
     task: str = "sound"
     fps: int = 30
-    episode_length: int = 1000
+    episode_length: int = 500
     obs_type: str = "pixels_agent_pos"
     render_mode: str = "rgb_array"
 
@@ -28,7 +28,7 @@ class SoundEnv(EnvConfig):
 class TestEnv(EnvConfig):
     task: str = "test"
     fps: int = 30
-    episode_length: int = 1000
+    episode_length: int = 500
     obs_type: str = "pixels_agent_pos"
     render_mode: str = "rgb_array"
     
@@ -45,7 +45,7 @@ class TestEnv(EnvConfig):
 class MarkerSoundEnv(EnvConfig):
     task: str = "marker_sound"
     fps: int = 30
-    episode_length: int = 1000
+    episode_length: int = 500
     obs_type: str = "pixels_agent_pos"
     render_mode: str = "rgb_array"
 
@@ -61,7 +61,7 @@ class MarkerSoundEnv(EnvConfig):
 class WeightedSoundEnv(EnvConfig):
     task: str = "weighted_sound"
     fps: int = 30
-    episode_length: int = 1000
+    episode_length: int = 500
     obs_type: str = "pixels_agent_pos"
     render_mode: str = "rgb_array"
 

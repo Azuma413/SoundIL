@@ -176,7 +176,7 @@ if __name__ == "__main__":
     # 20秒くらいのタスクを想定 → 合計600フレーム
     if "2" in task: # 2sound系のタスク
         IS_TWO_SOUND = True
-        stage_dict = {
+        stage_dict = { # 700
             "hover": 100, # cubeの上に手を持っていく
             "stabilize": 40, # cubeの上で手を安定させる
             "grasp": 20, # cubeを掴む
@@ -193,7 +193,7 @@ if __name__ == "__main__":
             "release2": 60, # cubeを離す
         }
     else:
-        stage_dict = {
+        stage_dict = { # 350
             "hover": 100, # cubeの上に手を持っていく
             "stabilize": 40, # cubeの上で手を安定させる
             "grasp": 20, # cubeを掴む
