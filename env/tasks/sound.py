@@ -122,8 +122,6 @@ class SoundTask:
         target.set_quat(quat_tensor)
     
     def reset(self):
-        # メモリリークを防ぐために、シーンをリセット
-        self._build_scene(self.show_viewer)
         # 箱を初期位置に設定
         pos_tensor = torch.tensor([0.5, 0.0, 0.0], dtype=torch.float32, device=gs.device)
         quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)

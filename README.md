@@ -202,7 +202,10 @@ uv run lerobot/lerobot/scripts/train.py \
   --policy.device=cuda \
   --wandb.enable=true \
   --batch_size=8 \
-  --steps=300000 \
+  --steps=300000
+```
+オプション
+```bash
   --env.type=test \
   --env.task=test \
   --eval_freq=5000 \
