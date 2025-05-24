@@ -36,17 +36,7 @@ def process_image_for_video(image_array, target_height, target_width):
         if np.issubdtype(image_array.dtype, np.floating):
             image_array = (image_array * 255).clip(0, 255)
         image_array = image_array.astype(np.uint8)
-    
-    # Resize if necessary - assuming individual feeds are already observation_height x observation_width
-    # If individual feeds can have varying sizes, resizing (e.g. with cv2) would be needed here
-    # For this implementation, we assume they match target_height and target_width.
     if image_array.shape[0] != target_height or image_array.shape[1] != target_width:
-        # This case should ideally not happen if inputs are consistent
-        # If it does, one might add resizing:
-        # import cv2
-        # image_array = cv2.resize(image_array, (target_width, target_height))
-        # For now, create a black frame of the target size if dimensions mismatch,
-        # or one could raise an error.
         print(f"Warning: Image shape {image_array.shape} mismatch with target {target_height}x{target_width}. Using black frame.")
         return np.zeros((target_height, target_width, 3), dtype=np.uint8)
         
@@ -117,9 +107,9 @@ def main(training_name, observation_height, observation_width, episode_num, show
         frames = [] # Stores combined frames
 
         # Process initial observation for video
-        front_img_obs = numpy_observation.get("front")
-        side_img_obs = numpy_observation.get("side")
-        sound_img_obs = numpy_observation.get("sound")
+        front_img_obs = numpy_observation.get("observation.images.front")
+        side_img_obs = numpy_observation.get("observation.images.side")
+        sound_img_obs = numpy_observation.get("observation.images.sound")
 
         front_video_img = process_image_for_video(front_img_obs, observation_height, observation_width)
         side_video_img = process_image_for_video(side_img_obs, observation_height, observation_width)
@@ -144,7 +134,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
                     tensor_data = torch.from_numpy(data).to(torch.float32)
                     observation[key] = tensor_data.to(device).unsqueeze(0)
                 elif key == "observation.images.front":
-                    img = numpy_observation["front"]
+                    img = numpy_observation["observation.images.front"]
                     img = img.copy()  # 負のstride対策
                     tensor_img = torch.from_numpy(img).to(torch.float32) / 255.0
                     if tensor_img.ndim == 3 and tensor_img.shape[2] in [1, 3, 4]:
@@ -153,7 +143,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
                         tensor_img = tensor_img.unsqueeze(0)
                     observation[key] = tensor_img.to(device).unsqueeze(0)
                 elif key == "observation.images.side":
-                    img = numpy_observation["side"]
+                    img = numpy_observation["observation.images.side"]
                     img = img.copy()  # 負のstride対策
                     tensor_img = torch.from_numpy(img).to(torch.float32) / 255.0
                     if tensor_img.ndim == 3 and tensor_img.shape[2] in [1, 3, 4]:
@@ -162,7 +152,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
                         tensor_img = tensor_img.unsqueeze(0)
                     observation[key] = tensor_img.to(device).unsqueeze(0)
                 elif key == "observation.images.sound":
-                    img = numpy_observation["sound"]
+                    img = numpy_observation["observation.images.sound"]
                     img = img.copy()  # 負のstride対策
                     tensor_img = torch.from_numpy(img).to(torch.float32) / 255.0
                     if tensor_img.ndim == 3 and tensor_img.shape[2] in [1, 3, 4]:
@@ -189,9 +179,9 @@ def main(training_name, observation_height, observation_width, episode_num, show
             rewards.append(reward)
 
             # Process current observation for video and add to frames list
-            front_img_obs = numpy_observation.get("front")
-            side_img_obs = numpy_observation.get("side")
-            sound_img_obs = numpy_observation.get("sound")
+            front_img_obs = numpy_observation.get("observation.images.front")
+            side_img_obs = numpy_observation.get("observation.images.side")
+            sound_img_obs = numpy_observation.get("observation.images.sound")
             if task_name == "dummy":
                 sound_img_obs = np.zeros_like(sound_img_obs)
 
@@ -205,7 +195,6 @@ def main(training_name, observation_height, observation_width, episode_num, show
             sound_start_w = (combined_video_w - observation_width) // 2
             current_combined_frame[observation_height:combined_video_h, sound_start_w : sound_start_w + observation_width] = sound_video_img
             frames.append(current_combined_frame)
-            
             done = terminated or truncated
             step += 1
             if step >= limit:
@@ -225,7 +214,6 @@ def main(training_name, observation_height, observation_width, episode_num, show
         if valid_frames:
             fps = env.metadata.get("render_fps", 30)
             video_path = output_directory / f"rollout_ep{ep+1}.mp4"
-            
             # Ensure all frames are uint8, HWC, and have the correct combined shape
             processed_valid_frames = []
             for f_val in valid_frames:
@@ -235,9 +223,9 @@ def main(training_name, observation_height, observation_width, episode_num, show
                     # to avoid video corruption if a frame is fundamentally broken.
                     continue 
                 if f_val.dtype != np.uint8:
-                     f_val = f_val.astype(np.uint8) # Should be handled by process_image_for_video already
+                    f_val = f_val.astype(np.uint8) # Should be handled by process_image_for_video already
                 processed_valid_frames.append(f_val)
-            
+
             valid_frames = processed_valid_frames
 
             if not valid_frames:
@@ -247,9 +235,9 @@ def main(training_name, observation_height, observation_width, episode_num, show
                 if not all(f.shape == first_shape for f in valid_frames):
                     # This check might be redundant if the loop above filters correctly, but good for safety
                     print(f"Warning: Frame shapes are inconsistent after processing. First frame: {first_shape}. Video may be corrupted.")
-                
+
                 try:
-                    imageio.mimsave(str(video_path), np.stack(valid_frames), fps=fps, plugin='pyav', output_params=['-pix_fmt', 'yuv420p'])
+                    imageio.mimsave(str(video_path), np.stack(valid_frames), fps=fps, output_params=['-pix_fmt', 'yuv420p'])
                 except Exception as e1:
                     print(f"Error saving with pyav plugin: {e1}. Trying default imageio plugin.")
                     try:
@@ -260,7 +248,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
                     print(f"Video saved: {video_path}")
         else:
             print("No valid frames recorded, skipping video saving.")
-    env.close()        
+    env.close()
     print(f"Success rate: {success_num}/{episode_num} ({(success_num / episode_num) * 100:.2f}%)")
     # 成功率をtextファイルに保存
     success_rate_file = output_directory / "success_rate.txt"
@@ -268,12 +256,12 @@ def main(training_name, observation_height, observation_width, episode_num, show
         f.write(f"Success rate: {success_num}/{episode_num} ({(success_num / episode_num) * 100:.2f}%)\n")
 
 if __name__ == "__main__":
-    training_name = "diffusion-sound_0"
+    training_name = "act-test_0"
     observation_height = 480
     observation_width = 640
     episode_num = 3
     show_viewer = False
-    checkpoint_step = "last"
+    checkpoint_step = "040000"
     main(
         training_name=training_name,
         observation_height=observation_height,

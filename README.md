@@ -192,7 +192,7 @@ policyはact, diffusion, pi0, pi0fast, tdmpc, vqbetのいずれか。
 学習の安定性を高めるためにbatch sizeはVRAMが許す限り大きくした方が良い。
 ```bash
 export DATASET_NAME=[データセット名]
-export POLICY=diffusion
+export POLICY=act
 uv run lerobot/lerobot/scripts/train.py \
   --dataset.repo_id=local/${DATASET_NAME} \
   --dataset.root=datasets/${DATASET_NAME} \
@@ -202,7 +202,7 @@ uv run lerobot/lerobot/scripts/train.py \
   --policy.device=cuda \
   --wandb.enable=true \
   --batch_size=8 \
-  --steps=300000
+  --steps=100000
 ```
 オプション
 ```bash
