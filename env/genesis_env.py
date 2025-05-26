@@ -25,7 +25,7 @@ class GenesisEnv(gym.Env):
         self._env = self._make_env_task(self.task)
         self.observation_space = self._env.observation_space
         self.action_space = self._env.action_space
-        self._max_episode_steps = 500 if "2" in task else 1000
+        self._max_episode_steps = 1000 if "2" in task else 500
         self.step_count = 0
 
     def reset(self, seed=None, options=None):
@@ -54,7 +54,9 @@ class GenesisEnv(gym.Env):
         self._env.save_videos(file_name=file_name, fps=fps)
 
     def close(self):
-        self._env = None
+        if self._env is not None:
+            self._env.close()
+            self._env = None
 
     def get_obs(self):
         return self._env.get_obs()

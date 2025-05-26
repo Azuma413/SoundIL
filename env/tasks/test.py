@@ -30,7 +30,8 @@ class TestTask:
 
     def _build_scene(self, show_viewer):
         if not gs._initialized:
-          gs.init(backend=gs.gpu, precision="32")
+            print("Genesis is not initialized, initializing now...")
+            gs.init(backend=gs.gpu, precision="32", debug=False, logging_level="WARNING")
         # シーンを初期化
         self.scene = gs.Scene(
             viewer_options=gs.options.ViewerOptions(
@@ -209,6 +210,8 @@ class TestTask:
         self.side_cam.stop_recording(save_to_filename=f"{file_name}_side.mp4", fps=fps)
         self.sound_cam.stop_recording(save_to_filename=f"{file_name}_sound.mp4", fps=fps)
 
+    def close(self):
+        gs.destroy()
 class DummyCamera:
     def __init__(self, target, observation_height, observation_width):
         self.observation_height = observation_height

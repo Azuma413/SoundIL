@@ -44,7 +44,7 @@ def process_image_for_video(image_array, target_height, target_width):
 
 def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last"):
     policy_list = ["act", "diffusion", "pi0", "tdmpc", "vqbet"]
-    task_list = ["test", "sound", "dummy"]
+    task_list = ["test", "sound", "marker_sound", "weighted_sound", "2sound", "marker_2sound", "weighted_2sound"]
     output_directory = Path(f"outputs/eval/{training_name}_{checkpoint_step}")
     output_directory.mkdir(parents=True, exist_ok=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -81,11 +81,10 @@ def main(training_name, observation_height, observation_width, episode_num, show
     for t in task_list:
         if t in training_name:
             task_name = t
-            break
+    print(f"Detected task name: {task_name}")
     if task_name is None:
         print(f"Error: Unknown task name in training name '{training_name}'. Expected one of {task_list}.")
         return
-    gs.init(backend=gs.cpu, precision="32")
     if task_name == "dummy":
         env = GenesisEnv(task="sound", observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
     else:
@@ -102,6 +101,14 @@ def main(training_name, observation_height, observation_width, episode_num, show
     for ep in range(episode_num):
         print(f"\n=== Episode {ep+1} ===")
         policy.reset()
+        if ep % 10 == 0:
+            # メモリを解放
+            env.close()
+            env = None
+            if task_name == "dummy":
+                env = GenesisEnv(task="sound", observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
+            else:
+                env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
         numpy_observation, _ = env.reset()
         rewards = []
         frames = [] # Stores combined frames
@@ -124,7 +131,6 @@ def main(training_name, observation_height, observation_width, episode_num, show
 
         step = 0
         done = False
-        limit = 600
         while not done:
             observation = {}
             for key in policy.config.input_features:
@@ -152,14 +158,14 @@ def main(training_name, observation_height, observation_width, episode_num, show
                         tensor_img = tensor_img.unsqueeze(0)
                     observation[key] = tensor_img.to(device).unsqueeze(0)
                 elif key == "observation.images.sound":
-                    img = numpy_observation["observation.images.sound"]
-                    img = img.copy()  # 負のstride対策
-                    tensor_img = torch.from_numpy(img).to(torch.float32) / 255.0
-                    if tensor_img.ndim == 3 and tensor_img.shape[2] in [1, 3, 4]:
-                        tensor_img = tensor_img.permute(2, 0, 1)
+                    img = numpy_observation["observation.images.sound"] # 画像データを取得
+                    img = img.copy()  # 負のstride対策でコピーを作成
+                    tensor_img = torch.from_numpy(img).to(torch.float32) / 255.0 # 0-1に正規化
+                    if tensor_img.ndim == 3 and tensor_img.shape[2] in [1, 3, 4]: # HWC形式でチャンネルが1, 3, 4のいずれか
+                        tensor_img = tensor_img.permute(2, 0, 1) # CHW形式に変換
                     elif tensor_img.ndim == 2:
-                        tensor_img = tensor_img.unsqueeze(0)
-                    observation[key] = tensor_img.to(device).unsqueeze(0)
+                        tensor_img = tensor_img.unsqueeze(0) # (H, W) -> (1, H, W)に変換
+                    observation[key] = tensor_img.to(device).unsqueeze(0) # バッチ次元を追加
                     if task_name == "dummy":
                         observation[key] = torch.zeros_like(observation[key])
                 else:
@@ -197,9 +203,6 @@ def main(training_name, observation_height, observation_width, episode_num, show
             frames.append(current_combined_frame)
             done = terminated or truncated
             step += 1
-            if step >= limit:
-                print(f"Reached step limit ({limit}).")
-                break
             # 評価用（必要なければ消す
             if reward > 0:
                 done = True
@@ -256,12 +259,12 @@ def main(training_name, observation_height, observation_width, episode_num, show
         f.write(f"Success rate: {success_num}/{episode_num} ({(success_num / episode_num) * 100:.2f}%)\n")
 
 if __name__ == "__main__":
-    training_name = "act-test_0"
+    training_name = "act-weighted_sound"
     observation_height = 480
     observation_width = 640
-    episode_num = 3
+    episode_num = 50
     show_viewer = False
-    checkpoint_step = "040000"
+    checkpoint_step = "last"
     main(
         training_name=training_name,
         observation_height=observation_height,
