@@ -222,9 +222,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
             for f_val in valid_frames:
                 if f_val.shape != (combined_video_h, combined_video_w, 3):
                     print(f"Warning: Frame shape is {f_val.shape}, expected {(combined_video_h, combined_video_w, 3)}. Skipping this frame for video.")
-                    # Optionally, create a black frame or resize, but skipping is safer for now
-                    # to avoid video corruption if a frame is fundamentally broken.
-                    continue 
+                    continue
                 if f_val.dtype != np.uint8:
                     f_val = f_val.astype(np.uint8) # Should be handled by process_image_for_video already
                 processed_valid_frames.append(f_val)
@@ -259,7 +257,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
         f.write(f"Success rate: {success_num}/{episode_num} ({(success_num / episode_num) * 100:.2f}%)\n")
 
 if __name__ == "__main__":
-    training_name = "act-weighted_sound"
+    training_name = "act-marker_sound"
     observation_height = 480
     observation_width = 640
     episode_num = 50

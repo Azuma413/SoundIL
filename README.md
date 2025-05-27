@@ -11,6 +11,8 @@ cd sound_dp
 uv sync
 uv pip install -e "Genesis/[dev]"
 uv pip install -e "lerobot/[feetech]"
+uv pip uninstall torch torchvision
+uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 ```
 ffmpegのインストール
 ```bash

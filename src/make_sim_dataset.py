@@ -48,11 +48,23 @@ def expert_policy(env, stage):
     elif stage == "lift2":
         target_pos = np.array([cube_pos2[0], cube_pos2[1], 0.25])
         grip = np.array([finder_pos, finder_pos])  # keep closed
-    elif stage == "to_box" or stage == "to_box2":
+    elif stage == "to_box" and not IS_TWO_SOUND:
         target_pos = box_pos + np.array([0.0, 0.0, 0.25])
         grip = np.array([finder_pos, finder_pos])
-    elif stage == "stabilize_box" or stage == "stabilize_box2":
+    elif stage == "to_box" and IS_TWO_SOUND:
+        target_pos = box_pos + np.array([0.0, 0.05, 0.25])
+        grip = np.array([finder_pos, finder_pos])
+    elif stage == "to_box2":
+        target_pos = box_pos + np.array([0.0, -0.05, 0.25])
+        grip = np.array([finder_pos, finder_pos])
+    elif stage == "stabilize_box" and not IS_TWO_SOUND:
         target_pos = box_pos + np.array([0.0, 0.0, 0.25])
+        grip = np.array([finder_pos, finder_pos])
+    elif stage == "stabilize_box" and IS_TWO_SOUND:
+        target_pos = box_pos + np.array([0.0, 0.05, 0.25])
+        grip = np.array([finder_pos, finder_pos])
+    elif stage == "stabilize_box2":
+        target_pos = box_pos + np.array([0.0, -0.05, 0.25])
         grip = np.array([finder_pos, finder_pos])
     elif stage == "release" and not IS_TWO_SOUND:
         target_pos = box_pos + np.array([0.0, 0.0, 0.25])
@@ -172,7 +184,7 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
     env.close()
 
 if __name__ == "__main__":
-    task = "weighted_sound" # [test, sound, marker_sound, weighted_sound, 2sound, marker_2sound, weighted_2sound]
+    task = "2sound" # [test, sound, marker_sound, weighted_sound, 2sound, marker_2sound, weighted_2sound]
     # 20秒くらいのタスクを想定 → 合計600フレーム
     if "2" in task: # 2sound系のタスク
         IS_TWO_SOUND = True
@@ -202,4 +214,4 @@ if __name__ == "__main__":
             "stabilize_box": 20, # cubeを箱の上で安定させる
             "release": 60, # cubeを離す
         }
-    main(task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=7, show_viewer=False)
+    main(task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=100, show_viewer=False)
