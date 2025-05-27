@@ -98,8 +98,9 @@ python lerobot/lerobot/scripts/control_robot.py \
 ```bash
 sudo apt install v4l2loopback-dkms v4l-utils
 v4l2-ctl --list-devices
-python lerobot/lerobot/common/robot_devices/cameras/opencv.py \
-    --images-dir outputs/images_from_opencv_cameras
+uv run lerobot/lerobot/common/robot_devices/cameras/opencv.py \
+    --images-dir outputs/images_from_opencv_cameras \
+    --record-time-s 0.5
 ```
 使いたいカメラに合わせて`lerobot/lerobot/common/robot_devices/robots/configs.py`の`So100RobotConfig`を編集する。
 ```python
@@ -116,7 +117,7 @@ python lerobot/lerobot/common/robot_devices/cameras/opencv.py \
 ```
 以下のコマンドで映像を表示しながら遠隔操作できる。
 ```bash
-python lerobot/lerobot/scripts/control_robot.py \
+uv run lerobot/lerobot/scripts/control_robot.py \
   --robot.type=so100 \
   --control.type=teleoperate \
   --control.display_data=true
@@ -124,7 +125,7 @@ python lerobot/lerobot/scripts/control_robot.py \
 ## データセットの作成
 データセット収集を開始します：
 ```bash
-python lerobot/lerobot/scripts/control_robot.py \
+uv run lerobot/lerobot/scripts/control_robot.py \
   --robot.type=so100 \
   --control.type=record \
   --control.fps=30 \
@@ -142,17 +143,17 @@ python lerobot/lerobot/scripts/control_robot.py \
 
 ex.
 ```bash
-python lerobot/lerobot/scripts/control_robot.py \
+uv run lerobot/lerobot/scripts/control_robot.py \
     --robot.type=so100 \
     --control.type=record \
     --control.fps=30 \
-    --control.single_task="spread a piece of cloth" \
-    --control.repo_id=local/spread-cloth \
-    --control.root=datasets/spread-cloth \
+    --control.single_task="Pick up and place audio source" \
+    --control.repo_id=local/real_sound \
+    --control.root=datasets/real_sound \
     --control.warmup_time_s=5 \
-    --control.episode_time_s=60 \
+    --control.episode_time_s=20 \
     --control.reset_time_s=10 \
-    --control.num_episodes=10 \
+    --control.num_episodes=1 \
     --control.push_to_hub=false \
     --control.resume=false \
     --control.display_data=true
@@ -288,12 +289,9 @@ uv run src/make_sim_dataset.py
 
 ## TODO
 - [ ] dummyのeval用環境を作る
-- [ ] MRによるマスタースレーブ検証用に、aloha用のGenesis環境を作る
-- [ ] aloha環境に布を配置する
 - [x] cubeBが最初から箱に入っている問題に対処する
-- [ ] aloha制御用のMRソフトを開発する
 - [x] サブモジュールをもとのリポジトリをフォークしたものに変更する
-- [ ] lerobot/lerobot/common/robot_devices/cameras/sound.pyの開発
-- [ ] 学習中の評価を取り入れた学習データの取得
+- [x] lerobot/lerobot/common/robot_devices/cameras/sound.pyの開発
 - [x] 音を増やした環境の作成
 - [ ] eval policyで取得される画像を、もっと引いたものにする
+- [ ] control_robot.pyで音タスク実行中に、ランダムなスピーカーから音がなるようにする。

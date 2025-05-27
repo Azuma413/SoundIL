@@ -27,7 +27,7 @@ class DoaTest:
         index = None
         for i in range(p.get_device_count()):
             if p.get_device_info_by_index(i)['name'] == device: # デバイスが見つかったらindexを取得
-                print("デバイス発見 [ID:{}]".format(i))
+                print(f"デバイス発見 [ID:{i}], {p.get_device_info_by_index(i)['name']}")
                 index = i
                 break
             else:
@@ -41,7 +41,7 @@ class DoaTest:
         radius = None
         if device == "ReSpeaker 4 Mic Array (UAC1.0): USB Audio (hw:1,0)":
             radius = 0.065
-        elif device == "TAMAGO-03: USB Audio (hw:1,0)":
+        elif device == "TAMAGO-03: USB Audio (hw:4,0)":
             radius = 0.065
         self.mic_locs = pra.circular_2D_array(center=[0,0], M=chans, phi0=0, radius=radius)
 
