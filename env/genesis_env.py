@@ -3,6 +3,7 @@ import warnings
 from env.tasks.sound import SoundTask
 from env.tasks.two_sound import TwoSoundTask
 from env.tasks.test import TestTask
+from env.tasks.test_sound import TestSoundTask
 
 class GenesisEnv(gym.Env):
 
@@ -93,6 +94,13 @@ class GenesisEnv(gym.Env):
                 observation_width=self.observation_width,
                 show_viewer=self.show_viewer,
                 sound_camera="weighted"
+            )
+        elif task_name == "test_sound":
+            task = TestSoundTask(
+                observation_height=self.observation_height,
+                observation_width=self.observation_width,
+                show_viewer=self.show_viewer,
+                sound_camera="default"
             )
         elif task_name == "2sound":
             task = TwoSoundTask(

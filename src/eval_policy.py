@@ -44,7 +44,7 @@ def process_image_for_video(image_array, target_height, target_width):
 
 def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last"):
     policy_list = ["act", "diffusion", "pi0", "tdmpc", "vqbet"]
-    task_list = ["test", "sound", "marker_sound", "weighted_sound", "2sound", "marker_2sound", "weighted_2sound"]
+    task_list = ["test", "sound", "marker_sound", "weighted_sound", "2sound", "marker_2sound", "weighted_2sound", "test_sound"]
     output_directory = Path(f"outputs/eval/{training_name}_{checkpoint_step}")
     output_directory.mkdir(parents=True, exist_ok=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -257,12 +257,12 @@ def main(training_name, observation_height, observation_width, episode_num, show
         f.write(f"Success rate: {success_num}/{episode_num} ({(success_num / episode_num) * 100:.2f}%)\n")
 
 if __name__ == "__main__":
-    training_name = "act-marker_sound"
+    training_name = "act-test_0"
     observation_height = 480
     observation_width = 640
     episode_num = 50
     show_viewer = False
-    checkpoint_step = "last"
+    checkpoint_step = "100000"
     main(
         training_name=training_name,
         observation_height=observation_height,

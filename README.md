@@ -296,4 +296,4 @@ uv run src/make_sim_dataset.py
 - [x] lerobot/lerobot/common/robot_devices/cameras/sound.pyの開発
 - [x] 音を増やした環境の作成
 - [ ] eval policyで取得される画像を、もっと引いたものにする
-- [ ] control_robot.pyで音タスク実行中に、ランダムなスピーカーから音がなるようにする。
+- [x] control_robot.pyで音タスク実行中に、ランダムなスピーカーから音がなるようにする。

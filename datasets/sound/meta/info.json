@@ -1,10 +1,10 @@
 {
     "codebase_version": "v2.1",
     "robot_type": "franka",
-    "total_episodes": 100,
-    "total_frames": 35000,
+    "total_episodes": 50,
+    "total_frames": 17500,
     "total_tasks": 1,
-    "total_videos": 300,
+    "total_videos": 150,
     "total_chunks": 1,
     "chunks_size": 1000,
     "fps": 30,
