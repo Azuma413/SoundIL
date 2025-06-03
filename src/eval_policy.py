@@ -87,6 +87,8 @@ def main(training_name, observation_height, observation_width, episode_num, show
         return
     if task_name == "dummy":
         env = GenesisEnv(task="sound", observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
+    elif task_name == "test_no_brank":
+        env = GenesisEnv(task="test", observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
     else:
         env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
     print("Policy Input Features:", policy.config.input_features)
@@ -107,6 +109,8 @@ def main(training_name, observation_height, observation_width, episode_num, show
             env = None
             if task_name == "dummy":
                 env = GenesisEnv(task="sound", observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
+            elif task_name == "test_no_brank":
+                env = GenesisEnv(task="test", observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
             else:
                 env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
         numpy_observation, _ = env.reset()
@@ -257,12 +261,12 @@ def main(training_name, observation_height, observation_width, episode_num, show
         f.write(f"Success rate: {success_num}/{episode_num} ({(success_num / episode_num) * 100:.2f}%)\n")
 
 if __name__ == "__main__":
-    training_name = "act-test_0"
+    training_name = "act-test_no_brank"
     observation_height = 480
     observation_width = 640
     episode_num = 50
     show_viewer = False
-    checkpoint_step = "100000"
+    checkpoint_step = "last"
     main(
         training_name=training_name,
         observation_height=observation_height,
