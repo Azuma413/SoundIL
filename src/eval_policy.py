@@ -44,7 +44,7 @@ def process_image_for_video(image_array, target_height, target_width):
 
 def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last"):
     policy_list = ["act", "diffusion", "pi0", "tdmpc", "vqbet"]
-    task_list = ["test", "sound", "marker_sound", "weighted_sound", "2sound", "marker_2sound", "weighted_2sound", "test_sound"]
+    task_list = ["test", "sound", "marker_sound", "weighted_sound", "2sound", "marker_2sound", "weighted_2sound", "test_sound", "test_no_brank", "dummy"]
     output_directory = Path(f"outputs/eval/{training_name}_{checkpoint_step}")
     output_directory.mkdir(parents=True, exist_ok=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
