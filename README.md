@@ -204,6 +204,7 @@ uv run lerobot/lerobot/scripts/train.py \
   --job_name=${POLICY}-${DATASET_NAME} \
   --policy.device=cuda \
   --wandb.enable=true \
+  --wandb.disable_artifact=true \
   --batch_size=8 \
   --steps=100000
 ```
