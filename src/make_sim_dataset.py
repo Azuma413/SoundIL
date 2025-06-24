@@ -184,7 +184,7 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
     env.close()
 
 if __name__ == "__main__":
-    task = "test_sound" # [test, sound, marker_sound, weighted_sound, 2sound, marker_2sound, weighted_2sound, test_sound]
+    task = "marker_sound" # [test, sound, marker_sound, weighted_sound, 2sound, marker_2sound, weighted_2sound, test_sound]
     # 20秒くらいのタスクを想定 → 合計600フレーム
     if "2" in task: # 2sound系のタスク
         IS_TWO_SOUND = True

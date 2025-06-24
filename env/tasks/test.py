@@ -18,17 +18,17 @@ joints_name = (
 AGENT_DIM = len(joints_name)
 
 class TestTask:
-    def __init__(self, observation_height, observation_width, show_viewer=False):
+    def __init__(self, observation_height, observation_width, show_viewer=False, dummy=False):
         self.show_viewer = show_viewer
         self.observation_height = observation_height
         self.observation_width = observation_width
         self._random = np.random.RandomState()
         self.box_scale = 1.0
-        self._build_scene(show_viewer)
+        self._build_scene(show_viewer, dummy)
         self.observation_space = self._make_obs_space()
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(AGENT_DIM,), dtype=np.float32)
 
-    def _build_scene(self, show_viewer):
+    def _build_scene(self, show_viewer, dummy):
         if not gs._initialized:
             print("Genesis is not initialized, initializing now...")
             gs.init(backend=gs.gpu, precision="32", debug=False, logging_level="WARNING")
@@ -51,12 +51,12 @@ class TestTask:
         # キューブAを追加
         self.cubeA = self.scene.add_entity(
             gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.65, 0.0, 0.025)),
-            surface=gs.surfaces.Aluminium(color=(0.7, 0.3, 0.3))
+            surface=gs.surfaces.Aluminium(color=(0.3, 0.7, 0.3)) if dummy else gs.surfaces.Aluminium(color=(0.7, 0.3, 0.3))
         )
         # キューブBを追加
         self.cubeB = self.scene.add_entity(
             gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.35, 0.0, 0.025)),
-            surface=gs.surfaces.Aluminium(color=(0.3, 0.3, 0.7))
+            surface=gs.surfaces.Aluminium(color=(0.3, 0.7, 0.3)) if dummy else gs.surfaces.Aluminium(color=(0.7, 0.3, 0.3))
         )
         # 箱を追加
         self.box = self.scene.add_entity(gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.5, 0.0, 0.0), scale=self.box_scale))

@@ -85,9 +85,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
     if task_name is None:
         print(f"Error: Unknown task name in training name '{training_name}'. Expected one of {task_list}.")
         return
-    if task_name == "dummy":
-        env = GenesisEnv(task="sound", observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
-    elif task_name == "test_no_brank":
+    if task_name == "test_no_brank":
         env = GenesisEnv(task="test", observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
     else:
         env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
@@ -107,9 +105,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
             # メモリを解放
             env.close()
             env = None
-            if task_name == "dummy":
-                env = GenesisEnv(task="sound", observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
-            elif task_name == "test_no_brank":
+            if task_name == "test_no_brank":
                 env = GenesisEnv(task="test", observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
             else:
                 env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
@@ -170,8 +166,6 @@ def main(training_name, observation_height, observation_width, episode_num, show
                     elif tensor_img.ndim == 2:
                         tensor_img = tensor_img.unsqueeze(0) # (H, W) -> (1, H, W)に変換
                     observation[key] = tensor_img.to(device).unsqueeze(0) # バッチ次元を追加
-                    if task_name == "dummy":
-                        observation[key] = torch.zeros_like(observation[key])
                 else:
                     print(f"Warning: Unsupported input feature '{key}'. Skipping.")
             with torch.inference_mode():
@@ -192,8 +186,6 @@ def main(training_name, observation_height, observation_width, episode_num, show
             front_img_obs = numpy_observation.get("observation.images.front")
             side_img_obs = numpy_observation.get("observation.images.side")
             sound_img_obs = numpy_observation.get("observation.images.sound")
-            if task_name == "dummy":
-                sound_img_obs = np.zeros_like(sound_img_obs)
 
             front_video_img = process_image_for_video(front_img_obs, observation_height, observation_width)
             side_video_img = process_image_for_video(side_img_obs, observation_height, observation_width)

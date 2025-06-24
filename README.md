@@ -290,11 +290,16 @@ uv run src/make_sim_dataset.py
 `screen -ls`でセッション確認。\
 `exit`でセッション終了
 
+## GMO
+セットアップ
+```bash
+module load singularitypro/4.1
+srun --partition=part-group_25b505 singularity build singularity.sif singularity.def
+srun --partition=part-group_25b505 --gres=gpu:1 --pty singularity shell --nv singularity.sif
+uv sync
+uv pip install -e "Genesis/[dev]"
+uv pip install -e "lerobot"
+```
+
 ## TODO
-- [ ] dummyのeval用環境を作る
-- [x] cubeBが最初から箱に入っている問題に対処する
-- [x] サブモジュールをもとのリポジトリをフォークしたものに変更する
-- [x] lerobot/lerobot/common/robot_devices/cameras/sound.pyの開発
-- [x] 音を増やした環境の作成
 - [ ] eval policyで取得される画像を、もっと引いたものにする
-- [x] control_robot.pyで音タスク実行中に、ランダムなスピーカーから音がなるようにする。

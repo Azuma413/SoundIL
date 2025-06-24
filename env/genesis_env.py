@@ -129,6 +129,13 @@ class GenesisEnv(gym.Env):
                 observation_width=self.observation_width,
                 show_viewer=self.show_viewer,
             )
+        elif task_name == "dummy":
+            task = TestTask(
+                observation_height=self.observation_height,
+                observation_width=self.observation_width,
+                show_viewer=self.show_viewer,
+                dummy=True
+            )
         else:
             raise NotImplementedError(task_name)
         return task

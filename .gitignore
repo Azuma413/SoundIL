@@ -10,3 +10,5 @@ datasets/weighted_sound_1/
 datasets/sound_save/
 datasets/real_sound1/
 datasets/real_sound2/
+*.sif
+*.out

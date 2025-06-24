@@ -2,12 +2,12 @@ Bootstrap: docker
 From: nvidia/cuda:12.2.2-devel-ubuntu22.04
 
 %environment
-    export PATH="/root/.local/bin:$PATH"
+    export PATH="$HOME/.local/bin:/root/.local/bin:$PATH"
     export "/home/user_00054_25b505/.local/bin:$PATH"
     export MUJOCO_GL="egl"
 
 %post
-    apt update && DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends \
+    apt update && apt upgrade -y && DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends \
         build-essential cmake \
         git git-lfs openssh-client \
         nano vim less util-linux tree \
@@ -24,7 +24,7 @@ From: nvidia/cuda:12.2.2-devel-ubuntu22.04
         pkg-config texinfo yasm zlib1g-dev nasm libx264-dev \
         libx265-dev libnuma-dev libvpx-dev libfdk-aac-dev \
         libopus-dev libsvtav1-dev libsvtav1enc-dev libsvtav1dec-dev \
-        libdav1d-dev \
+        libdav1d-dev ffmpeg libasound2-dev python3-dev \
         && apt-get clean && rm -rf /var/lib/apt/lists/*
 
     # Python alias
@@ -36,13 +36,6 @@ From: nvidia/cuda:12.2.2-devel-ubuntu22.04
     chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list && \
     apt update && apt install -y gh && apt clean && rm -rf /var/lib/apt/lists/*
-    
-    
-    # Install Poetry
-    export PATH="/home/{!!!Add your own user name!!!}/.local/bin:$PATH"
-    curl -sSL https://install.python-poetry.org | python - --version 1.8.5
-    poetry config virtualenvs.create false
-    poetry config virtualenvs.in-project true
 
     # Install uv
     wget -qO- https://astral.sh/uv/install.sh | sh
