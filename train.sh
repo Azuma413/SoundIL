@@ -1,10 +1,12 @@
 #!/bin/bash
 #SBATCH --partition part-group_25b505
-#SBATCH --nodelist=aic-gh2b-310036
-# [310033-310036]のどれか
+#SBATCH --nodelist=aic-gh2b-310034
+# 310033 ~ 310036 のどれか
 #SBATCH --gres=gpu:1
 
-export DATASET_NAME="dummy-ep150" # "sound-ep100"
+module load singularitypro/4.1
+
+export DATASET_NAME="dummy-ep100" # "sound-ep100"
 export POLICY="act"
 # export WANDB_API_KEY="your_wandb_api_key_here"  # Replace with your actual WandB API key
 export WANDB_API_KEY="5767e2baca4de66a67547e79fdf0e61f3be358bd"  # Replace with your actual WandB API key

@@ -300,6 +300,10 @@ uv sync
 uv pip install -e "Genesis/[dev]"
 uv pip install -e "lerobot"
 ```
-
+学習
+```bash
+sbatch train.sh
+squeue -o "%.7A %.20j %.10a %.33u %.8T %.8l %.8M %.20R %.5D %.10b %.4C %o"
+```
 ## TODO
 - [ ] eval policyで取得される画像を、もっと引いたものにする

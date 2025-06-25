@@ -1,5 +1,5 @@
 # 2つのデータセットを結合し、indexをずらして保存するスクリプト
-# python datasets/concat_data.py path1 path2 save_path
+# python concat_data.py path1 path2 save_path
 import os
 import sys
 import shutil
@@ -72,8 +72,8 @@ def main():
     concat_files_with_index_shift(data1_dir, save_data_dir, 0, '*') # data1_dirのファイルをコピー
     concat_files_with_index_shift(data2_dir, save_data_dir, max_idx1+1, '*') # data2_dirのファイルをコピー
     # videos
-    # camera_list = ['front', 'side', 'sound']
-    camera_list = ['realsense', 'sound', 'webcam']
+    camera_list = ['front', 'side', 'sound']
+    # camera_list = ['realsense', 'sound', 'webcam']
     for camera in camera_list:
         videos1_dir = os.path.join(path1, f'videos/chunk-000/observation.images.{camera}')
         videos2_dir = os.path.join(path2, f'videos/chunk-000/observation.images.{camera}')
