@@ -16,6 +16,7 @@ class GenesisEnv(gym.Env):
             observation_width = 640,
             show_viewer=False,
             render_mode=None,
+            reset_freq=10,
     ):
         super().__init__()
         self.task = task
@@ -28,9 +29,21 @@ class GenesisEnv(gym.Env):
         self.action_space = self._env.action_space
         self._max_episode_steps = 1000 if "2" in task else 500
         self.step_count = 0
+        self.reset_freq = reset_freq
+        self.episode_count = 0
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
+        # エピソード回数をインクリメント
+        self.episode_count += 1
+        # reset_freqの倍数回に達したらメモリ開放とリセット
+        if self.episode_count % self.reset_freq == 0:
+            # 現在の環境をクローズ
+            self.close()
+            # 新しい環境を作成
+            self._env = self._make_env_task(self.task)
+            self.observation_space = self._env.observation_space
+            self.action_space = self._env.action_space
         if seed is not None:
             self._env.seed(seed)
         # resetは obs, info を返す

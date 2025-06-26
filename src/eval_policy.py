@@ -101,14 +101,6 @@ def main(training_name, observation_height, observation_width, episode_num, show
     for ep in range(episode_num):
         print(f"\n=== Episode {ep+1} ===")
         policy.reset()
-        if ep % 10 == 0:
-            # メモリを解放
-            env.close()
-            env = None
-            if task_name == "test_no_brank":
-                env = GenesisEnv(task="test", observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
-            else:
-                env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
         numpy_observation, _ = env.reset()
         rewards = []
         frames = [] # Stores combined frames
