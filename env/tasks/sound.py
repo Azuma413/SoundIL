@@ -20,7 +20,8 @@ joints_name = (
 AGENT_DIM = len(joints_name)
 
 class SoundTask:
-    def __init__(self, observation_height, observation_width, show_viewer=False, sound_camera="default"):
+    def __init__(self, observation_height, observation_width, show_viewer=False, sound_camera="default", device="cuda"):
+        self.device = device
         self.show_viewer = show_viewer
         self.observation_height = observation_height
         self.observation_width = observation_width
@@ -34,7 +35,12 @@ class SoundTask:
     def _build_scene(self, show_viewer):
         if not gs._initialized:
             print("Genesis is not initialized, initializing now...")
-            gs.init(backend=gs.gpu, precision="32", debug=False, logging_level="WARNING")
+            if self.device == "cuda":
+                gs.init(backend=gs.gpu, precision="32", debug=False, logging_level="WARNING")
+            elif self.device == "cpu":
+                gs.init(backend=gs.cpu, precision="32", debug=False, logging_level="WARNING")
+            else:
+                raise ValueError(f"Unsupported device: {self.device}. Use 'cuda' or 'cpu'.")
         # シーンを初期化
         self.scene = gs.Scene(
             viewer_options=gs.options.ViewerOptions(

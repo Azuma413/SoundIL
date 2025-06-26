@@ -17,9 +17,11 @@ class GenesisEnv(gym.Env):
             show_viewer=False,
             render_mode=None,
             reset_freq=10,
+            device="cuda"
     ):
         super().__init__()
         self.task = task
+        self.device = device
         self.observation_height = observation_height
         self.observation_width = observation_width
         self.show_viewer = show_viewer
@@ -93,61 +95,70 @@ class GenesisEnv(gym.Env):
                 observation_height=self.observation_height,
                 observation_width=self.observation_width,
                 show_viewer=self.show_viewer,
-                sound_camera="default"
+                sound_camera="default",
+                device=self.device
             )
         elif task_name == "marker_sound":
             task = SoundTask(observation_height=self.observation_height,
                 observation_width=self.observation_width,
                 show_viewer=self.show_viewer,
-                sound_camera="marker"
+                sound_camera="marker",
+                device=self.device
             )
         elif task_name == "weighted_sound":
             task = SoundTask(
                 observation_height=self.observation_height,
                 observation_width=self.observation_width,
                 show_viewer=self.show_viewer,
-                sound_camera="weighted"
+                sound_camera="weighted",
+                device=self.device
             )
         elif task_name == "test_sound":
             task = TestSoundTask(
                 observation_height=self.observation_height,
                 observation_width=self.observation_width,
                 show_viewer=self.show_viewer,
-                sound_camera="default"
+                sound_camera="default",
+                device=self.device
             )
         elif task_name == "2sound":
             task = TwoSoundTask(
                 observation_height=self.observation_height,
                 observation_width=self.observation_width,
                 show_viewer=self.show_viewer,
-                sound_camera="default"
+                sound_camera="default",
+                device=self.device
             )
         elif task_name == "marker_2sound":
             task = TwoSoundTask(
                 observation_height=self.observation_height,
                 observation_width=self.observation_width,
                 show_viewer=self.show_viewer,
-                sound_camera="marker"
+                sound_camera="marker",
+                device=self.device
             )
         elif task_name == "weighted_2sound":
             task = TwoSoundTask(
                 observation_height=self.observation_height,
                 observation_width=self.observation_width,
                 show_viewer=self.show_viewer,
-                sound_camera="weighted"
+                sound_camera="weighted",
+                device=self.device
             )
         elif task_name == "test":
             task = TestTask(
                 observation_height=self.observation_height,
                 observation_width=self.observation_width,
                 show_viewer=self.show_viewer,
+                device=self.device
             )
         elif task_name == "dummy":
             task = TestTask(
                 observation_height=self.observation_height,
                 observation_width=self.observation_width,
                 show_viewer=self.show_viewer,
-                dummy=True
+                dummy=True,
+                device=self.device
             )
         else:
             raise NotImplementedError(task_name)
