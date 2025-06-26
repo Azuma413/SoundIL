@@ -4,19 +4,13 @@
 Discord Webhook経由で通知を送信
 """
 
-import json
 import os
 import sys
-import time
 from datetime import datetime
 from typing import Optional
-
-try:
-    import requests
-except ImportError:
-    print("警告: requestsがインストールされていません。通知機能が無効になります。")
-    requests = None
-
+from dotenv import load_dotenv
+load_dotenv()
+import requests
 
 class NotificationSystem:
     """通知システムクラス"""
@@ -34,7 +28,7 @@ class NotificationSystem:
         embed = {
             "embeds": [{
                 "description": message,
-                "color": color,  # デフォルト: 緑色
+                "color": color, # デフォルト: 緑色
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "footer": {
                     "text": f"ホスト: {self.hostname}"
@@ -119,5 +113,9 @@ def main():
         sys.exit(1)
 
 
+# if __name__ == "__main__":
+#     main()
+
 if __name__ == "__main__":
-    main()
+    notifier = NotificationSystem()
+    notifier.send_discord_message("テストメッセージ", color=0x00ff00)  # 緑色

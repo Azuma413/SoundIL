@@ -1,2 +1,8 @@
 # Discord通知設定
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxxxxxxx/xxxxxxxx
+
+# 通知の有効/無効
+NOTIFICATIONS_ENABLED=true
+
+# ホスト名（自動設定されない場合は手動で設定）
+HOSTNAME=hiratsuka

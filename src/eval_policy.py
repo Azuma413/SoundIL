@@ -11,11 +11,6 @@ from lerobot.common.policies.pi0.modeling_pi0 import PI0Policy
 import os
 import sys
 import time
-from datetime import datetime
-from dotenv import load_dotenv
-
-# 環境変数を読み込み
-load_dotenv()
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from env.genesis_env import GenesisEnv
