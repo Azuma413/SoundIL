@@ -46,7 +46,6 @@ def process_image_for_video(image_array, target_height, target_width):
     return image_array
 
 def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last"):
-    notifier = NotificationSystem()
     start_time = time.time()
     
     policy_list = ["act", "diffusion", "pi0", "tdmpc", "vqbet"]
@@ -260,10 +259,10 @@ def main(training_name, observation_height, observation_width, episode_num, show
         f.write(f"Success rate: {success_num}/{episode_num} ({success_rate:.2f}%)\n")
     
     # 完了通知
-    if notifier:
-        result_info = f"成功率: {success_num}/{episode_num} ({success_rate:.2f}%)\n"
-        result_info += f"実行時間: {int(minutes)}分{int(seconds)}秒\n"
-        notifier.send_discord_message(f"お兄ちゃん！　{training_name}のポリシー評価が完了したよ！\n```\n{result_info}```")
+    notifier = NotificationSystem()
+    result_info = f"成功率: {success_num}/{episode_num} ({success_rate:.2f}%)\n"
+    result_info += f"実行時間: {int(minutes)}分{int(seconds)}秒\n"
+    notifier.send_discord_message(f"お兄ちゃん！　{training_name}のポリシー評価が完了したよ！\n```\n{result_info}```")
 
 if __name__ == "__main__":
     training_name = "act-sound-ep100_0"
@@ -271,7 +270,7 @@ if __name__ == "__main__":
     observation_width = 640
     episode_num = 50
     show_viewer = False
-    checkpoint_step = "120000"
+    checkpoint_step = "300000"
     main(
         training_name=training_name,
         observation_height=observation_height,
