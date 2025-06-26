@@ -12,3 +12,4 @@ datasets/real_sound1/
 datasets/real_sound2/
 *.sif
 *.out
+.env

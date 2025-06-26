@@ -238,10 +238,10 @@ uv run lerobot/lerobot/scripts/train.py \
   --steps=150000
 ```
 ## ポリシーの評価
-- デスクトップで学習した重みの転送
-デスクトップのWSLからノートPCのUbuntuへ重みを転送する。wslではmDNSの名前解決が出来ないので注意。
+- 学習した重みの転送
+wslではmDNSの名前解決が出来ないので注意。
 ```bash
-rsync -avz --progress outputs user_name@ip:~/path/to/sound_dp
+rsync -avz --progress gmo:/home/user_00054_25b505/SourceCode/sound_dp/outputs/train/act-sound-ep100_0 outputs/train
 ```
 - ポリシーの実行
 ```bash

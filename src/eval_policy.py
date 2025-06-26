@@ -10,8 +10,16 @@ from lerobot.common.policies.tdmpc.modeling_tdmpc import TDMPCPolicy
 from lerobot.common.policies.pi0.modeling_pi0 import PI0Policy
 import os
 import sys
+import time
+from datetime import datetime
+from dotenv import load_dotenv
+
+# 環境変数を読み込み
+load_dotenv()
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from env.genesis_env import GenesisEnv
+from src.notify import NotificationSystem
 
 def process_image_for_video(image_array, target_height, target_width):
     """Process an image array for video recording, ensuring it's HWC, RGB, uint8."""
@@ -43,6 +51,9 @@ def process_image_for_video(image_array, target_height, target_width):
     return image_array
 
 def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last"):
+    notifier = NotificationSystem()
+    start_time = time.time()
+    
     policy_list = ["act", "diffusion", "pi0", "tdmpc", "vqbet"]
     task_list = ["test", "sound", "marker_sound", "weighted_sound", "2sound", "marker_2sound", "weighted_2sound", "test_sound", "test_no_brank", "dummy"]
     output_directory = Path(f"outputs/eval/{training_name}_{checkpoint_step}")
@@ -238,19 +249,31 @@ def main(training_name, observation_height, observation_width, episode_num, show
         else:
             print("No valid frames recorded, skipping video saving.")
     env.close()
-    print(f"Success rate: {success_num}/{episode_num} ({(success_num / episode_num) * 100:.2f}%)")
+    
+    # 実行完了
+    end_time = time.time()
+    duration = end_time - start_time
+    success_rate = (success_num / episode_num) * 100
+    
+    print(f"Success rate: {success_num}/{episode_num} ({success_rate:.2f}%)")
+    
     # 成功率をtextファイルに保存
     success_rate_file = output_directory / "success_rate.txt"
     with open(success_rate_file, "w") as f:
-        f.write(f"Success rate: {success_num}/{episode_num} ({(success_num / episode_num) * 100:.2f}%)\n")
+        f.write(f"Success rate: {success_num}/{episode_num} ({success_rate:.2f}%)\n")
+    
+    # 完了通知
+    if notifier:
+        result_info = f"成功率: {success_num}/{episode_num} ({success_rate:.2f}%)\n"
+        notifier.send_discord_message(f"お兄ちゃん！　{training_name}のポリシー評価が完了したよ！\n```\n{result_info}```")
 
 if __name__ == "__main__":
-    training_name = "act-test_no_brank"
+    training_name = "act-sound-ep100_0"
     observation_height = 480
     observation_width = 640
     episode_num = 50
     show_viewer = False
-    checkpoint_step = "last"
+    checkpoint_step = "120000"
     main(
         training_name=training_name,
         observation_height=observation_height,
