@@ -62,7 +62,7 @@ class TestTask:
         # キューブBを追加
         self.cubeB = self.scene.add_entity(
             gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.35, 0.0, 0.025)),
-            surface=gs.surfaces.Aluminium(color=(0.3, 0.7, 0.3)) if dummy else gs.surfaces.Aluminium(color=(0.7, 0.3, 0.3))
+            surface=gs.surfaces.Aluminium(color=(0.3, 0.7, 0.3)) if dummy else gs.surfaces.Aluminium(color=(0.3, 0.3, 0.7))
         )
         # 箱を追加
         self.box = self.scene.add_entity(gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.5, 0.0, 0.0), scale=self.box_scale))

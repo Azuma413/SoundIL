@@ -266,7 +266,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
         notifier.send_discord_message(f"お兄ちゃん！　{training_name} のポリシー評価が完了したよ！\n```\n{result_info}```")
 
 if __name__ == "__main__":
-    training_name = "act-dummy-ep200_1"
+    training_name = "diffusion-sound-ep100_0"
     observation_height = 480
     observation_width = 640
     episode_num = 50
