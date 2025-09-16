@@ -141,8 +141,6 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
                     reward_greater_than_zero = True
                 elif reward > 1 and IS_TWO_SOUND:
                     reward_greater_than_zero = True
-        # デバッグ用
-        # env.save_video(file_name=f"video", fps=30)
 
         if not reward_greater_than_zero:
             print(f"🚫 Skipping episode {ep+1} — reward was always 0")

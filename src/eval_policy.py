@@ -14,7 +14,6 @@ import time
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from env.genesis_env import GenesisEnv
-from src.notify import NotificationSystem
 
 def process_image_for_video(image_array, target_height, target_width):
     """Process an image array for video recording, ensuring it's HWC, RGB, uint8."""
@@ -248,21 +247,12 @@ def main(training_name, observation_height, observation_width, episode_num, show
     end_time = time.time()
     duration = end_time - start_time
     # durationを分と秒に変換
-    minutes, seconds = divmod(duration, 60)
     success_rate = (success_num / episode_num) * 100
-    
     print(f"Success rate: {success_num}/{episode_num} ({success_rate:.2f}%)")
-    
     # 成功率をtextファイルに保存
     success_rate_file = output_directory / "success_rate.txt"
     with open(success_rate_file, "w") as f:
         f.write(f"Success rate: {success_num}/{episode_num} ({success_rate:.2f}%)\n")
-    
-    # 完了通知
-    notifier = NotificationSystem()
-    result_info = f"成功率: {success_num}/{episode_num} ({success_rate:.2f}%)\n"
-    result_info += f"実行時間: {int(minutes)}分{int(seconds)}秒\n"
-    notifier.send_discord_message(f"お兄ちゃん！　{training_name} のポリシー評価が完了したよ！\n```\n{result_info}```")
 
 if __name__ == "__main__":
     training_name = "act-weighted_sound-ep100_2"
