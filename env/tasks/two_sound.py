@@ -41,7 +41,6 @@ class TwoSoundTask:
                 gs.init(backend=gs.cpu, precision="32", debug=False, logging_level="WARNING")
             else:
                 raise ValueError(f"Unsupported device: {self.device}. Use 'cuda' or 'cpu'.")
-        # シーンを初期化
         self.scene = gs.Scene(
             viewer_options=gs.options.ViewerOptions(
                 camera_pos=(3, -1, 1.5),
@@ -53,28 +52,21 @@ class TwoSoundTask:
             rigid_options=gs.options.RigidOptions(box_box_detection=True),
             show_viewer=show_viewer,
         )
-        # 平面を追加
         self.plane = self.scene.add_entity(morph=gs.morphs.Plane())
-        # フランカロボットを追加
         self.franka = self.scene.add_entity(gs.morphs.MJCF(file="xml/franka_emika_panda/panda.xml"))
-        # キューブAを追加
         self.cubeA = self.scene.add_entity(
             gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.65, 0.0, 0.025)),
             surface=gs.surfaces.Aluminium(color=(0.3, 0.7, 0.3))
         )
-        # キューブBを追加
         self.cubeB = self.scene.add_entity(
             gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.35, 0.0, 0.025)),
             surface=gs.surfaces.Aluminium(color=(0.3, 0.7, 0.3))
         )
-        # キューブCを追加
         self.cubeC = self.scene.add_entity(
             gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.5, 0.2, 0.025)),
             surface=gs.surfaces.Aluminium(color=(0.3, 0.7, 0.3))
         )
-        # 箱を追加
         self.box = self.scene.add_entity(gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.5, 0.0, 0.0), scale=self.box_scale))
-        # フロントカメラを追加
         self.front_cam = self.scene.add_camera(
             res=(self.observation_width, self.observation_height),
             pos=(2.5, 0.0, 1.5),
@@ -82,7 +74,6 @@ class TwoSoundTask:
             fov=18,
             GUI=False
         )
-        # サイドカメラを追加
         self.side_cam = self.scene.add_camera(
             res=(self.observation_width, self.observation_height),
             pos=(0.5, 1.5, 1.5),
@@ -90,7 +81,6 @@ class TwoSoundTask:
             fov=20,
             GUI=False
         )
-        # サウンドカメラを追加
         if self.sound_camera == "default":
             self.sound_cam = SoundCamera(
                 self.cubeA,
@@ -126,7 +116,7 @@ class TwoSoundTask:
             "observation.images.side": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
             "observation.images.sound": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
         })
-    
+
     def set_random_state(self, target, x_range, y_range, z):
         x = np.random.uniform(x_range[0], x_range[1])
         y = np.random.uniform(y_range[0], y_range[1])
@@ -135,29 +125,24 @@ class TwoSoundTask:
         quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
         target.set_pos(pos_tensor)
         target.set_quat(quat_tensor)
-    
+
     def reset(self):
-        # 箱を初期位置に設定
         pos_tensor = torch.tensor([0.5, 0.0, 0.0], dtype=torch.float32, device=gs.device)
         quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
         self.box.set_pos(pos_tensor)
         self.box.set_quat(quat_tensor)
-        # CubeAの位置をランダムに設定
         self.set_random_state(self.cubeA, (0.3, 0.7), (-0.3, 0.3), 0.04) # 1回は必ず呼び出す
         while self.compute_reward() == 1.0:
             print("CubeA is in the box, resetting position...")
             self.set_random_state(self.cubeA, (0.3, 0.7), (-0.3, 0.3), 0.04)
-        # CubeBの位置をランダムに設定
         self.set_random_state(self.cubeB, (0.3, 0.7), (-0.3, 0.3), 0.04)
         while self.compute_reward(target="cubeB") == 1.0:
             print("CubeB is in the box, resetting position...")
             self.set_random_state(self.cubeB, (0.3, 0.7), (-0.3, 0.3), 0.04)
-        # CubeCの位置をランダムに設定
         self.set_random_state(self.cubeC, (0.3, 0.7), (-0.3, 0.3), 0.04)
         while self.compute_reward(target="cubeC") == 1.0:
             print("CubeC is in the box, resetting position...")
             self.set_random_state(self.cubeC, (0.3, 0.7), (-0.3, 0.3), 0.04)
-        # フランカロボットを初期位置にリセット
         qpos = np.array([0.0, -0.4, 0.0, -2.2, 0.0, 2.0, 0.8, 0.04, 0.04])
         qpos_tensor = torch.tensor(qpos, dtype=torch.float32, device=gs.device)
         self.franka.set_dofs_kp(
@@ -173,14 +158,12 @@ class TwoSoundTask:
         self.franka.set_qpos(qpos_tensor, zero_velocity=True)
         self.franka.control_dofs_position(qpos_tensor[:7], self.motors_dof)
         self.franka.control_dofs_position(qpos_tensor[7:], self.fingers_dof)
-
-        # ステップ実行
         self.scene.step()
         self.front_cam.start_recording()
         self.side_cam.start_recording()
         self.sound_cam.start_recording()
         return self.get_obs(), {}
-        
+
     def seed(self, seed):
         np.random.seed(seed)
         random.seed(seed)
@@ -200,9 +183,8 @@ class TwoSoundTask:
         truncated = False
         info = {}
         return obs, reward, terminated, truncated, info
-    
+
     def compute_reward(self, target="cubeA"):
-        # CubeAがboxの中にあるかどうかをチェック
         if target == "cubeA":
             pos = self.cubeA.get_pos().cpu().numpy()
         elif target == "cubeB":
@@ -220,18 +202,14 @@ class TwoSoundTask:
         return reward
 
     def get_obs(self):
-        # ロボットの状態を取得
         eef_pos = self.eef.get_pos().cpu().numpy()
         eef_rot = self.eef.get_quat().cpu().numpy()
         gripper = self.franka.get_dofs_position()[7:9].cpu().numpy()
         agent_pos = np.concatenate([eef_pos, eef_rot, gripper])
-        # frontカメラの画像を取得
         front_pixels = self.front_cam.render()[0]
         assert front_pixels.ndim == 3, f"front_pixels shape {front_pixels.shape} is not 3D (H, W, 3)"
-        # sideカメラの画像を取得
         side_pixels = self.side_cam.render()[0]
         assert side_pixels.ndim == 3, f"side_pixels shape {side_pixels.shape} is not 3D (H, W, 3)"
-        # soundカメラの画像を取得
         sound_pixels = self.sound_cam.render()[0]
         assert sound_pixels.ndim == 3, f"sound_pixels shape {sound_pixels.shape} is not 3D (H, W, 3)"
         obs = {
@@ -284,13 +262,12 @@ class SoundCamera:
         for i in range(sound_image.shape[0]):
             frame_to_write = sound_image[i]
             if frame_to_write.dtype != np.uint8:
-                 frame_to_write = frame_to_write.astype(np.uint8)
+                frame_to_write = frame_to_write.astype(np.uint8)
             out.write(frame_to_write)
         out.release()
         self.frames = []
 
     def render(self):
-        # CubeAとBが音を発していると仮定して、画像を生成
         sound1_pos = self.target1.get_pos() if self.target1 is not None else torch.tensor([0.5, 0.3, 0.1])
         sound2_pos = self.target2.get_pos() if self.target2 is not None else torch.tensor([0.5, -0.3, 0.1])
         sound_image = []
@@ -305,7 +282,6 @@ class SoundCamera:
                     air_absorption=True,
                 )
                 aroom.extrude(3.0) # 部屋の高さを3mに設定
-                # マイクロフォンアレイを追加
                 aroom.add_microphone_array(
                     np.concatenate(
                         ( # Add parentheses here
@@ -348,16 +324,13 @@ class SoundCamera:
                     print(f"Warning: Sound source is outside the room. Skipping sound simulation for mic {i}. Error: {e}")
                     sound_image.append(np.zeros((self.observation_height, self.observation_width)))
                 else:
-                    raise e # Re-raise other ValueErrors
-
+                    raise e
         if not sound_image: # Handle case where all simulations failed
             print("Warning: All sound simulations failed. Returning zero array.")
             sound_image_array = np.zeros((self.observation_height, self.observation_width, 3), dtype=np.uint8)
             self.frames.append(sound_image_array)
             return sound_image_array, None
-
         sound_image_array = np.array(sound_image)
-        # y軸を反転
         sound_image_array = np.flip(sound_image_array, axis=2)
         sound_image_array = np.clip(sound_image_array, 0, 255).astype(np.uint8)
         sound_image_array = np.transpose(sound_image_array, (1, 2, 0))
@@ -413,16 +386,3 @@ class WeightedSoundCamera(SoundCamera):
         weighted_frame = self.past_frame.astype(np.uint8)
         self.frames[-1] = weighted_frame
         return weighted_frame, None
-
-if __name__ == "__main__":
-    # SondCameraのテスト
-    sound_camera = SoundCamera(None, None, 480, 640)
-    sound_camera.start_recording()
-    for i in range(10):
-        sound_pixels = sound_camera.render()[0]
-        # 画像を保存
-        cv2.imwrite(f"test_sound_{i}.png", sound_pixels)
-    # 出力ファイル名が .mp4 であることを確認
-    output_filename = "test_sound.mp4"
-    sound_camera.stop_recording(save_to_filename=output_filename, fps=30)
-    print(f"Test video saved to {output_filename}")

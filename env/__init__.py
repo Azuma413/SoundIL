@@ -1,10 +1,5 @@
 from lerobot.common.envs import EnvConfig
-from lerobot.common.constants import ACTION, OBS_ENV, OBS_IMAGE, OBS_IMAGES, OBS_ROBOT
-from lerobot.configs.types import FeatureType, PolicyFeature
-from dataclasses import dataclass, field
-
-# 以下のファイルを参照
-# lerobot/lerobot/common/envs/configs.py
+from dataclasses import dataclass
 
 @EnvConfig.register_subclass("sound")
 @dataclass
@@ -14,7 +9,6 @@ class SoundEnv(EnvConfig):
     episode_length: int = 500
     obs_type: str = "pixels_agent_pos"
     render_mode: str = "rgb_array"
-
     @property
     def gym_kwargs(self) -> dict:
         return {
@@ -31,7 +25,6 @@ class TestEnv(EnvConfig):
     episode_length: int = 500
     obs_type: str = "pixels_agent_pos"
     render_mode: str = "rgb_array"
-    
     @property
     def gym_kwargs(self) -> dict:
         return {
@@ -48,7 +41,6 @@ class MarkerSoundEnv(EnvConfig):
     episode_length: int = 500
     obs_type: str = "pixels_agent_pos"
     render_mode: str = "rgb_array"
-
     @property
     def gym_kwargs(self) -> dict:
         return {
@@ -64,7 +56,6 @@ class WeightedSoundEnv(EnvConfig):
     episode_length: int = 500
     obs_type: str = "pixels_agent_pos"
     render_mode: str = "rgb_array"
-
     @property
     def gym_kwargs(self) -> dict:
         return {
@@ -80,7 +71,6 @@ class TwoSoundEnv(EnvConfig):
     episode_length: int = 1000
     obs_type: str = "pixels_agent_pos"
     render_mode: str = "rgb_array"
-
     @property
     def gym_kwargs(self) -> dict:
         return {
@@ -96,7 +86,6 @@ class MarkerTwoSoundEnv(EnvConfig):
     episode_length: int = 1000
     obs_type: str = "pixels_agent_pos"
     render_mode: str = "rgb_array"
-
     @property
     def gym_kwargs(self) -> dict:
         return {
@@ -112,7 +101,6 @@ class WeightedTwoSoundEnv(EnvConfig):
     episode_length: int = 1000
     obs_type: str = "pixels_agent_pos"
     render_mode: str = "rgb_array"
-
     @property
     def gym_kwargs(self) -> dict:
         return {

@@ -2,38 +2,27 @@ from pathlib import Path
 import imageio
 import numpy as np
 import torch
-import genesis as gs
 from lerobot.common.policies.diffusion.modeling_diffusion import DiffusionPolicy
 from lerobot.common.policies.act.modeling_act import ACTPolicy
-from lerobot.common.policies.vqbet.modeling_vqbet import VQBeTPolicy
-from lerobot.common.policies.tdmpc.modeling_tdmpc import TDMPCPolicy
 from lerobot.common.policies.pi0.modeling_pi0 import PI0Policy
 import os
 import sys
 import time
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from env.genesis_env import GenesisEnv
 
 def process_image_for_video(image_array, target_height, target_width):
     """Process an image array for video recording, ensuring it's HWC, RGB, uint8."""
     if image_array is None:
-        # Return a black frame if the image is missing
         return np.zeros((target_height, target_width, 3), dtype=np.uint8)
-
-    # Ensure image is HWC
     if image_array.ndim == 2:  # Grayscale (H, W)
         image_array = np.stack((image_array,) * 3, axis=-1) # Convert to (H, W, 3)
     elif image_array.ndim == 3 and image_array.shape[0] == 3: # CHW
         image_array = image_array.transpose(1, 2, 0) # Convert to (H, W, C)
-
-    # Ensure 3 channels (RGB)
     if image_array.shape[2] == 1:  # Grayscale with channel dim
         image_array = np.concatenate([image_array] * 3, axis=-1)
     elif image_array.shape[2] == 4:  # RGBA
         image_array = image_array[..., :3] # Keep only RGB
-
-    # Ensure uint8
     if image_array.dtype != np.uint8:
         if np.issubdtype(image_array.dtype, np.floating):
             image_array = (image_array * 255).clip(0, 255)
@@ -41,13 +30,11 @@ def process_image_for_video(image_array, target_height, target_width):
     if image_array.shape[0] != target_height or image_array.shape[1] != target_width:
         print(f"Warning: Image shape {image_array.shape} mismatch with target {target_height}x{target_width}. Using black frame.")
         return np.zeros((target_height, target_width, 3), dtype=np.uint8)
-        
     return image_array
 
 def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last", sim_device="cuda"):
     start_time = time.time()
-    
-    policy_list = ["act", "diffusion", "pi0", "tdmpc", "vqbet"]
+    policy_list = ["act", "diffusion", "pi0"]
     task_list = ["test", "sound", "marker_sound", "weighted_sound", "2sound", "marker_2sound", "weighted_2sound", "test_sound", "test_no_brank", "dummy"]
     output_directory = Path(f"outputs/eval/{training_name}_{checkpoint_step}")
     output_directory.mkdir(parents=True, exist_ok=True)
@@ -70,10 +57,6 @@ def main(training_name, observation_height, observation_width, episode_num, show
         policy = DiffusionPolicy.from_pretrained(pretrained_policy_path)
     elif model_type == "act":
         policy = ACTPolicy.from_pretrained(pretrained_policy_path)
-    elif model_type == "vqbet":
-        policy = VQBeTPolicy.from_pretrained(pretrained_policy_path)
-    elif model_type == "tdmpc":
-        policy = TDMPCPolicy.from_pretrained(pretrained_policy_path)
     elif model_type == "pi0":
         policy = PI0Policy.from_pretrained(pretrained_policy_path)
     else:
@@ -98,39 +81,31 @@ def main(training_name, observation_height, observation_width, episode_num, show
     print("Policy Output Features:", policy.config.output_features)
     print("Environment Action Space:", env.action_space)
     success_num = 0
-
     combined_video_h = observation_height * 2
     combined_video_w = observation_width * 2
-
     for ep in range(episode_num):
         print(f"\n=== Episode {ep+1} ===")
         policy.reset()
         numpy_observation, _ = env.reset()
         rewards = []
         frames = [] # Stores combined frames
-
-        # Process initial observation for video
         front_img_obs = numpy_observation.get("observation.images.front")
         side_img_obs = numpy_observation.get("observation.images.side")
         sound_img_obs = numpy_observation.get("observation.images.sound")
-
         front_video_img = process_image_for_video(front_img_obs, observation_height, observation_width)
         side_video_img = process_image_for_video(side_img_obs, observation_height, observation_width)
         sound_video_img = process_image_for_video(sound_img_obs, observation_height, observation_width)
-
         combined_frame = np.zeros((combined_video_h, combined_video_w, 3), dtype=np.uint8)
         combined_frame[0:observation_height, 0:observation_width] = front_video_img
         combined_frame[0:observation_height, observation_width:combined_video_w] = side_video_img
         sound_start_w = (combined_video_w - observation_width) // 2
         combined_frame[observation_height:combined_video_h, sound_start_w : sound_start_w + observation_width] = sound_video_img
         frames.append(combined_frame)
-
         step = 0
         done = False
         while not done:
             observation = {}
             for key in policy.config.input_features:
-                # make_sim_dataset.pyの観測キーに合わせてマッピング
                 if key == "observation.state":
                     data = numpy_observation["agent_pos"]
                     tensor_data = torch.from_numpy(data).to(torch.float32)
@@ -177,16 +152,12 @@ def main(training_name, observation_height, observation_width, episode_num, show
             numpy_observation, reward, terminated, truncated, info = env.step(numpy_action)
             print(f"Step: {step}, Reward: {reward:.4f}, Terminated: {terminated}, Truncated: {truncated}")
             rewards.append(reward)
-
-            # Process current observation for video and add to frames list
             front_img_obs = numpy_observation.get("observation.images.front")
             side_img_obs = numpy_observation.get("observation.images.side")
             sound_img_obs = numpy_observation.get("observation.images.sound")
-
             front_video_img = process_image_for_video(front_img_obs, observation_height, observation_width)
             side_video_img = process_image_for_video(side_img_obs, observation_height, observation_width)
             sound_video_img = process_image_for_video(sound_img_obs, observation_height, observation_width)
-
             current_combined_frame = np.zeros((combined_video_h, combined_video_w, 3), dtype=np.uint8)
             current_combined_frame[0:observation_height, 0:observation_width] = front_video_img
             current_combined_frame[0:observation_height, observation_width:combined_video_w] = side_video_img
@@ -195,8 +166,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
             frames.append(current_combined_frame)
             done = terminated or truncated
             step += 1
-            # 評価用（必要なければ消す
-            if reward > 0:
+            if reward > 0: # 成功したら早期終了
                 done = True
         total_reward = sum(rewards)
         print(f"Evaluation finished after {step} steps. Total reward: {total_reward:.4f}")
@@ -209,7 +179,6 @@ def main(training_name, observation_height, observation_width, episode_num, show
         if valid_frames:
             fps = env.metadata.get("render_fps", 30)
             video_path = output_directory / f"rollout_ep{ep+1}.mp4"
-            # Ensure all frames are uint8, HWC, and have the correct combined shape
             processed_valid_frames = []
             for f_val in valid_frames:
                 if f_val.shape != (combined_video_h, combined_video_w, 3):
@@ -218,9 +187,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
                 if f_val.dtype != np.uint8:
                     f_val = f_val.astype(np.uint8) # Should be handled by process_image_for_video already
                 processed_valid_frames.append(f_val)
-
             valid_frames = processed_valid_frames
-
             if not valid_frames:
                 print("No valid frames with correct dimensions found after processing, skipping video saving.")
             else:
@@ -228,7 +195,6 @@ def main(training_name, observation_height, observation_width, episode_num, show
                 if not all(f.shape == first_shape for f in valid_frames):
                     # This check might be redundant if the loop above filters correctly, but good for safety
                     print(f"Warning: Frame shapes are inconsistent after processing. First frame: {first_shape}. Video may be corrupted.")
-
                 try:
                     imageio.mimsave(str(video_path), np.stack(valid_frames), fps=fps, output_params=['-pix_fmt', 'yuv420p'])
                 except Exception as e1:
@@ -242,32 +208,23 @@ def main(training_name, observation_height, observation_width, episode_num, show
         else:
             print("No valid frames recorded, skipping video saving.")
     env.close()
-    
-    # 実行完了
-    end_time = time.time()
-    duration = end_time - start_time
-    # durationを分と秒に変換
     success_rate = (success_num / episode_num) * 100
     print(f"Success rate: {success_num}/{episode_num} ({success_rate:.2f}%)")
-    # 成功率をtextファイルに保存
     success_rate_file = output_directory / "success_rate.txt"
     with open(success_rate_file, "w") as f:
         f.write(f"Success rate: {success_num}/{episode_num} ({success_rate:.2f}%)\n")
 
 if __name__ == "__main__":
+    # 評価したい学習済みモデルの名前を指定
+    # outputs/train/<training_name>/checkpoints/<checkpoint_step>
     training_name = "act-weighted_sound-ep100_2"
-    observation_height = 480
-    observation_width = 640
-    episode_num = 50
-    show_viewer = False
     checkpoint_step = "100000"
-    sim_device = "cpu" # cuda or cpu シミュレーションを実行するデバイスを指定
     main(
         training_name=training_name,
-        observation_height=observation_height,
-        observation_width=observation_width,
-        episode_num=episode_num,
-        show_viewer=show_viewer,
+        observation_height=480,
+        observation_width=640,
+        episode_num=50,
+        show_viewer=False,
         checkpoint_step=checkpoint_step,
-        sim_device=sim_device
+        sim_device="cpu", # cuda or cpu シミュレーションを実行するデバイスを指定
     )

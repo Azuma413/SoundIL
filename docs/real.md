@@ -6,11 +6,11 @@
 
 ## セットアップ
 - USBデバイスのセットアップ\
-Follower用とLeader用のサーボドライバをそれぞれPCに接続し、適当にそれぞれのデバイスの名前を調べる。
+Follower用とLeader用のサーボドライバをそれぞれPCに接続し，それぞれのデバイスの名前を調べる．
 ```bash
 ls /dev/ttyA*
 ```
-次に`lerobot/lerobot/common/robot_devices/robots/configs.py`の`So100RobotConfig`を編集する。
+次に`lerobot/lerobot/common/robot_devices/robots/configs.py`の`So100RobotConfig`を編集する．
 ```python
 class So100RobotConfig(ManipulatorRobotConfig):
     calibration_dir: str = ".cache/calibration/so100"
@@ -52,7 +52,7 @@ class So100RobotConfig(ManipulatorRobotConfig):
 
 ```
 - モーターのセットアップ\
-ドライバにボーレートとIDを設定したいモーターを1つ接続した状態で以下のコマンドを実行する。
+ドライバにボーレートとIDを設定したいモーターを1つ接続した状態で以下のコマンドを実行する．
 ```
 uv run lerobot/lerobot/scripts/configure_motor.py --port /dev/ttyACM0 --brand feetech --model sts3215 --baudrate 1000000 --ID 1
 ```
@@ -90,7 +90,7 @@ uv run lerobot/lerobot/common/robot_devices/cameras/opencv.py \
     --images-dir outputs/images_from_opencv_cameras \
     --record-time-s 0.5
 ```
-使いたいカメラに合わせて`lerobot/lerobot/common/robot_devices/robots/configs.py`の`So100RobotConfig`を編集する。
+使いたいカメラに合わせて`lerobot/lerobot/common/robot_devices/robots/configs.py`の`So100RobotConfig`を編集する．
 ```python
     cameras: dict[str, CameraConfig] = field(
         default_factory=lambda: {
@@ -103,7 +103,7 @@ uv run lerobot/lerobot/common/robot_devices/cameras/opencv.py \
         }
     )
 ```
-以下のコマンドで映像を表示しながら遠隔操作できる。
+以下のコマンドで映像を表示しながら遠隔操作できる．
 ```bash
 uv run lerobot/lerobot/scripts/control_robot.py \
   --robot.type=so100 \
@@ -146,12 +146,6 @@ uv run lerobot/lerobot/scripts/control_robot.py \
 - `--control.resume`: 既存のデータセットへの追加収集（デフォルト：false）
 
 ## ポリシーの評価
-- 学習した重みの転送
-wslではmDNSの名前解決が出来ないので注意。
-```bash
-rsync -avz --progress gmo:/home/user_00054_25b505/SourceCode/sound_dp/outputs/train/act-sound-ep100_0 outputs/train
-```
-- ポリシーの実行
 ```bash
 uv run lerobot/lerobot/scripts/control_robot.py \
   --robot.type=so100 \
