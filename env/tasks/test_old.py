@@ -50,7 +50,7 @@ class TestTask:
             show_viewer=show_viewer,
         )
         self.plane = self.scene.add_entity(morph=gs.morphs.Plane())
-        self.franka = self.scene.add_entity(gs.morphs.MJCF(file="SO-ARM100/Simulation/SO101/so101_new_calib.xml"))
+        self.franka = self.scene.add_entity(gs.morphs.MJCF(file="xml/franka_emika_panda/panda.xml"))
         self.cubeA = self.scene.add_entity(
             gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.65, 0.0, 0.025)),
             surface=gs.surfaces.Aluminium(color=(0.3, 0.7, 0.3)) if dummy else gs.surfaces.Aluminium(color=(0.7, 0.3, 0.3))

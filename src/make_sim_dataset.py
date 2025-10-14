@@ -15,69 +15,71 @@ def expert_policy(env, stage):
     cube_pos = task.cubeA.get_pos().cpu().numpy()
     cube_pos2 = task.cubeB.get_pos().cpu().numpy()
     box_pos = task.box.get_pos().cpu().numpy()
-    finder_pos = -0.02  # tighter grip
-    quat = np.array([0, 1, 0, 0]) # Changed from [[0, 1, 0, 0]] to [0, 1, 0, 0]
+    grip_close = np.array([0.0])
+    grip_open = np.array([np.pi/3])
+    quat = np.array([1, 0, 0, 0], dtype=np.float32)
+    quat /= np.linalg.norm(quat)
     eef = task.eef
     # === Stage definitions ===
     if stage == "hover":
-        target_pos = cube_pos + np.array([0.0, 0.0, 0.2])  # hover safely
-        grip = np.array([0.04, 0.04])  # open
+        target_pos = cube_pos + np.array([-0.02, -0.0, 0.15])  # hover safely
+        grip = grip_open
     elif stage == "stabilize":
-        target_pos = cube_pos + np.array([0.0, 0.0, 0.1])
-        grip = np.array([0.04, 0.04])  # still open
+        target_pos = cube_pos + np.array([-0.02, -0.0, 0.10])
+        grip = grip_open  # still open
     elif stage == "grasp":
-        target_pos = cube_pos + np.array([0.0, 0.0, 0.1])  # lower slightly
-        grip = np.array([finder_pos, finder_pos])  # close grip
+        target_pos = cube_pos + np.array([-0.02, -0.0, 0.08])  # lower slightly
+        grip = grip_close  # close grip
     elif stage == "lift":
-        target_pos = np.array([cube_pos[0], cube_pos[1], 0.25])
-        grip = np.array([finder_pos, finder_pos])  # keep closed
+        target_pos = np.array([cube_pos[0]-0.02, cube_pos[1]-0.0, 0.2])
+        grip = grip_close  # keep closed
     elif stage == "hover2":
         target_pos = cube_pos2 + np.array([0.0, 0.0, 0.2])  # hover safely
-        grip = np.array([0.04, 0.04])  # open
+        grip = grip_open
     elif stage == "stabilize2":
         target_pos = cube_pos2 + np.array([0.0, 0.0, 0.1])
-        grip = np.array([0.04, 0.04])  # still open
+        grip = grip_open  # still open
     elif stage == "grasp2":
         target_pos = cube_pos2 + np.array([0.0, 0.0, 0.1])  # lower slightly
-        grip = np.array([finder_pos, finder_pos])  # close grip
+        grip = grip_close  # close grip
     elif stage == "lift2":
         target_pos = np.array([cube_pos2[0], cube_pos2[1], 0.25])
-        grip = np.array([finder_pos, finder_pos])  # keep closed
+        grip = grip_close  # keep closed
     elif stage == "to_box" and not IS_TWO_SOUND:
-        target_pos = box_pos + np.array([0.0, 0.0, 0.25])
-        grip = np.array([finder_pos, finder_pos])
+        target_pos = box_pos + np.array([0.0, 0.0, 0.1])
+        grip = grip_close
     elif stage == "to_box" and IS_TWO_SOUND:
-        target_pos = box_pos + np.array([0.0, 0.05, 0.25])
-        grip = np.array([finder_pos, finder_pos])
+        target_pos = box_pos + np.array([0.0, 0.05, 0.1])
+        grip = grip_close
     elif stage == "to_box2":
         target_pos = box_pos + np.array([0.0, -0.05, 0.25])
-        grip = np.array([finder_pos, finder_pos])
+        grip = grip_close
     elif stage == "stabilize_box" and not IS_TWO_SOUND:
-        target_pos = box_pos + np.array([0.0, 0.0, 0.25])
-        grip = np.array([finder_pos, finder_pos])
+        target_pos = box_pos + np.array([0.0, 0.0, 0.1])
+        grip = grip_close
     elif stage == "stabilize_box" and IS_TWO_SOUND:
         target_pos = box_pos + np.array([0.0, 0.05, 0.25])
-        grip = np.array([finder_pos, finder_pos])
+        grip = grip_close
     elif stage == "stabilize_box2":
         target_pos = box_pos + np.array([0.0, -0.05, 0.25])
-        grip = np.array([finder_pos, finder_pos])
+        grip = grip_close
     elif stage == "release" and not IS_TWO_SOUND:
-        target_pos = box_pos + np.array([0.0, 0.0, 0.25])
-        grip = np.array([0.04, 0.04])
+        target_pos = box_pos + np.array([0.0, 0.0, 0.1])
+        grip = grip_open
     elif stage == "release" and IS_TWO_SOUND:
         target_pos = box_pos + np.array([0.0, 0.05, 0.25])
-        grip = np.array([0.04, 0.04])
+        grip = grip_open
     elif stage == "release2":
         target_pos = box_pos + np.array([0.0, -0.05, 0.25])
-        grip = np.array([0.04, 0.04])
+        grip = grip_open
     else:
         raise ValueError(f"Unknown stage: {stage}")
-    qpos = task.franka.inverse_kinematics(
+    qpos = task.so_arm.inverse_kinematics(
         link=eef,
         pos=target_pos,
         quat=quat,
     ).cpu().numpy()
-    qpos_arm = qpos[:-2]
+    qpos_arm = qpos[:-1]
     action = np.concatenate([qpos_arm, grip])
     return action.astype(np.float32)
 
@@ -94,8 +96,8 @@ def initialize_dataset(task, height, width):
         robot_type="franka",
         use_videos=True,
         features={
-            "observation.state": {"dtype": "float32", "shape": (9,), "names": joints_name},
-            "action": {"dtype": "float32", "shape": (9,), "names": joints_name},
+            "observation.state": {"dtype": "float32", "shape": (8,), "names": joints_name},
+            "action": {"dtype": "float32", "shape": (6,), "names": joints_name},
             "observation.images.front": {"dtype": "video", "shape": (height, width, 3), "names": ("height", "width", "channels")},
             "observation.images.side": {"dtype": "video", "shape": (height, width, 3), "names": ("height", "width", "channels")},
             "observation.images.sound": {"dtype": "video", "shape": (height, width, 3), "names": ("height", "width", "channels")},
@@ -129,9 +131,9 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
                     reward_greater_than_zero = True
                 elif reward > 1 and IS_TWO_SOUND:
                     reward_greater_than_zero = True
-        if not reward_greater_than_zero:
-            print(f"🚫 Skipping episode {ep+1} — reward was always 0")
-            continue
+        # if not reward_greater_than_zero:
+        #     print(f"🚫 Skipping episode {ep+1} — reward was always 0")
+        #     continue
         print(f"✅ Saving episode {ep+1}")
         ep += 1
         for i in range(len(states)):
@@ -168,7 +170,7 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
 
 if __name__ == "__main__":
     # datasetを作成したいタスクを指定
-    task = "weighted_sound" # [test, sound, marker_sound, weighted_sound, 2sound, marker_2sound, weighted_2sound, test_sound]
+    task = "test" # [test, sound, marker_sound, weighted_sound, 2sound, marker_2sound, weighted_2sound, test_sound]
     if "2" in task: # 2sound系のタスク
         IS_TWO_SOUND = True
         stage_dict = {
@@ -190,11 +192,11 @@ if __name__ == "__main__":
     else:
         stage_dict = {
             "hover": 100, # cubeの上に手を持っていく
-            "stabilize": 40, # cubeの上で手を安定させる
-            "grasp": 20, # cubeを掴む
-            "lift": 50, # cubeを持ち上げる
-            "to_box": 60, # cubeを箱の上に持っていく
-            "stabilize_box": 20, # cubeを箱の上で安定させる
-            "release": 60, # cubeを離す
+            "stabilize": 100, # cubeの上で手を安定させる
+            "grasp": 50, # cubeを掴む
+            "lift": 100, # cubeを持ち上げる
+            # "to_box": 100, # cubeを箱の上に持っていく
+            # "stabilize_box": 50, # cubeを箱の上で安定させる
+            # "release": 100, # cubeを離す
         }
-    main(task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, episode_num=100, show_viewer=False)
+    main(episode_num=1, task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, show_viewer=False)
