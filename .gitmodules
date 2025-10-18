@@ -4,6 +4,3 @@
 [submodule "Genesis"]
 	path = Genesis
 	url = https://github.com/Genesis-Embodied-AI/Genesis.git
-[submodule "SO-ARM100"]
-	path = SO-ARM100
-	url = https://github.com/TheRobotStudio/SO-ARM100.git

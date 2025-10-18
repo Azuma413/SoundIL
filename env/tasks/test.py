@@ -21,7 +21,7 @@ class TestTask:
         self.observation_height = observation_height
         self.observation_width = observation_width
         self._random = np.random.RandomState()
-        self.box_scale = 1.0
+        self.box_scale = 0.75
         self._build_scene(show_viewer, dummy)
         self.observation_space = self._make_obs_space()
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(8,), dtype=np.float32)
@@ -43,20 +43,27 @@ class TestTask:
                 res=(self.observation_width, self.observation_height),
             ),
             sim_options=gs.options.SimOptions(dt=0.01),
-            rigid_options=gs.options.RigidOptions(box_box_detection=True),
+            rigid_options=gs.options.RigidOptions(
+                box_box_detection=True,
+                noslip_iterations=5,
+                constraint_timeconst=0.001,
+                # integrator=gs.integrator.implicitfast,
+            ),
             show_viewer=show_viewer,
         )
         self.plane = self.scene.add_entity(
             morph=gs.morphs.Plane(),
             surface=gs.surfaces.Plastic(diffuse_texture=gs.textures.ImageTexture(image_path="images/wood.jpg"))
         )
-        self.so_arm = self.scene.add_entity(gs.morphs.MJCF(file="SO-ARM100/Simulation/SO101/so101_new_calib.xml"))
+        self.so_arm = self.scene.add_entity(gs.morphs.MJCF(file="URDF/so101_new_calib.xml"))
         self.cubeA = self.scene.add_entity(
             gs.morphs.Box(size=(0.03, 0.03, 0.03), pos=(0.45, 0.0, 0.02)),
+            material=gs.materials.Rigid(rho=50, friction=1.5, coup_friction=1.0, coup_softness=0.001),
             surface=gs.surfaces.Plastic(color=(0.3, 0.7, 0.3)) if dummy else gs.surfaces.Plastic(color=(0.7, 0.3, 0.3))
         )
         self.cubeB = self.scene.add_entity(
             gs.morphs.Box(size=(0.03, 0.03, 0.03), pos=(0.15, 0.0, 0.02)),
+            material=gs.materials.Rigid(rho=50, friction=1.5, coup_friction=1.0, coup_softness=0.001),
             surface=gs.surfaces.Plastic(color=(0.3, 0.7, 0.3)) if dummy else gs.surfaces.Plastic(color=(0.3, 0.3, 0.7))
         )
         self.box = self.scene.add_entity(
@@ -120,14 +127,14 @@ class TestTask:
         qpos = np.array([0.0, -np.pi/2, np.pi/2, 1.0, 0.0, 0.04])
         qpos_tensor = torch.tensor(qpos, dtype=torch.float32, device=gs.device)
         self.so_arm.set_dofs_kp(
-            np.array([500, 500, 500, 500, 500, 1000]),
+            np.array([500, 500, 500, 500, 500, 100]),
         )
         self.so_arm.set_dofs_kv(
             np.array([100, 100, 100, 100, 100, 100]),
         )
         self.so_arm.set_dofs_force_range(
-            np.array([-20, -20, -20, -10, -10, -20]),
-            np.array([ 20,  20,  20,  10,  10,  20]),
+            np.array([-20, -20, -20, -10, -10, -5]),
+            np.array([ 20,  20,  20,  10,  10,  5]),
         )
         self.so_arm.set_qpos(qpos_tensor, zero_velocity=True)
         self.so_arm.control_dofs_position(qpos_tensor[:5], self.motors_dof)

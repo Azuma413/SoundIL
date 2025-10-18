@@ -8,9 +8,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from env.genesis_env import GenesisEnv
 from env.tasks.sound import joints_name
 
-IS_TWO_SOUND = False
+saved_cube_pos = None
+is_first_call = True
 
 def expert_policy(env, stage):
+    global saved_cube_pos, is_first_call
     task = env._env
     cube_pos = task.cubeA.get_pos().cpu().numpy()
     cube_pos2 = task.cubeB.get_pos().cpu().numpy()
@@ -20,57 +22,32 @@ def expert_policy(env, stage):
     quat = np.array([1, 0, 0, 0], dtype=np.float32)
     quat /= np.linalg.norm(quat)
     eef = task.eef
+    offset = np.array([-0.02, 0.0, 0.0])
     # === Stage definitions ===
     if stage == "hover":
-        target_pos = cube_pos + np.array([-0.02, -0.0, 0.15])  # hover safely
+        is_first_call = True
+        target_pos = cube_pos + np.array([0.0, 0.0, 0.15]) + offset # hover safely
         grip = grip_open
     elif stage == "stabilize":
-        target_pos = cube_pos + np.array([-0.02, -0.0, 0.10])
+        target_pos = cube_pos + np.array([0.0, 0.0, 0.10]) + offset
         grip = grip_open  # still open
     elif stage == "grasp":
-        target_pos = cube_pos + np.array([-0.02, -0.0, 0.08])  # lower slightly
+        target_pos = cube_pos + np.array([0.0, 0.0, 0.07]) + offset  # lower slightly
         grip = grip_close  # close grip
     elif stage == "lift":
-        target_pos = np.array([cube_pos[0]-0.02, cube_pos[1]-0.0, 0.2])
+        if is_first_call:
+            saved_cube_pos = cube_pos
+            is_first_call = False
+        target_pos = np.array([saved_cube_pos[0], saved_cube_pos[1], 0.15]) + offset
         grip = grip_close  # keep closed
-    elif stage == "hover2":
-        target_pos = cube_pos2 + np.array([0.0, 0.0, 0.2])  # hover safely
-        grip = grip_open
-    elif stage == "stabilize2":
-        target_pos = cube_pos2 + np.array([0.0, 0.0, 0.1])
-        grip = grip_open  # still open
-    elif stage == "grasp2":
-        target_pos = cube_pos2 + np.array([0.0, 0.0, 0.1])  # lower slightly
-        grip = grip_close  # close grip
-    elif stage == "lift2":
-        target_pos = np.array([cube_pos2[0], cube_pos2[1], 0.25])
-        grip = grip_close  # keep closed
-    elif stage == "to_box" and not IS_TWO_SOUND:
-        target_pos = box_pos + np.array([0.0, 0.0, 0.1])
+    elif stage == "to_box":
+        target_pos = box_pos + np.array([0.0, 0.0, 0.16]) + offset
         grip = grip_close
-    elif stage == "to_box" and IS_TWO_SOUND:
-        target_pos = box_pos + np.array([0.0, 0.05, 0.1])
+    elif stage == "stabilize_box":
+        target_pos = box_pos + np.array([0.0, 0.0, 0.16]) + offset
         grip = grip_close
-    elif stage == "to_box2":
-        target_pos = box_pos + np.array([0.0, -0.05, 0.25])
-        grip = grip_close
-    elif stage == "stabilize_box" and not IS_TWO_SOUND:
-        target_pos = box_pos + np.array([0.0, 0.0, 0.1])
-        grip = grip_close
-    elif stage == "stabilize_box" and IS_TWO_SOUND:
-        target_pos = box_pos + np.array([0.0, 0.05, 0.25])
-        grip = grip_close
-    elif stage == "stabilize_box2":
-        target_pos = box_pos + np.array([0.0, -0.05, 0.25])
-        grip = grip_close
-    elif stage == "release" and not IS_TWO_SOUND:
-        target_pos = box_pos + np.array([0.0, 0.0, 0.1])
-        grip = grip_open
-    elif stage == "release" and IS_TWO_SOUND:
-        target_pos = box_pos + np.array([0.0, 0.05, 0.25])
-        grip = grip_open
-    elif stage == "release2":
-        target_pos = box_pos + np.array([0.0, -0.05, 0.25])
+    elif stage == "release":
+        target_pos = box_pos + np.array([0.0, 0.0, 0.16]) + offset
         grip = grip_open
     else:
         raise ValueError(f"Unknown stage: {stage}")
@@ -127,9 +104,7 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
                 images_side.append(obs["observation.images.side"])
                 images_sound.append(obs["observation.images.sound"])
                 actions.append(action)
-                if reward > 0 and not IS_TWO_SOUND:
-                    reward_greater_than_zero = True
-                elif reward > 1 and IS_TWO_SOUND:
+                if reward > 0:
                     reward_greater_than_zero = True
         # if not reward_greater_than_zero:
         #     print(f"🚫 Skipping episode {ep+1} — reward was always 0")
@@ -171,32 +146,13 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
 if __name__ == "__main__":
     # datasetを作成したいタスクを指定
     task = "test" # [test, sound, marker_sound, weighted_sound, 2sound, marker_2sound, weighted_2sound, test_sound]
-    if "2" in task: # 2sound系のタスク
-        IS_TWO_SOUND = True
-        stage_dict = {
-            "hover": 100, # cubeの上に手を持っていく
-            "stabilize": 40, # cubeの上で手を安定させる
-            "grasp": 20, # cubeを掴む
-            "lift": 50, # cubeを持ち上げる
-            "to_box": 60, # cubeを箱の上に持っていく
-            "stabilize_box": 20, # cubeを箱の上で安定させる
-            "release": 60, # cubeを離す
-            "hover2": 100, # cubeの上に手を持っていく
-            "stabilize2": 40, # cubeの上で手を安定させる
-            "grasp2": 20, # cubeを掴む
-            "lift2": 50, # cubeを持ち上げる
-            "to_box2": 60, # cubeを箱の上に持っていく
-            "stabilize_box2": 20, # cubeを箱の上で安定させる
-            "release2": 60, # cubeを離す
-        }
-    else:
-        stage_dict = {
-            "hover": 100, # cubeの上に手を持っていく
-            "stabilize": 100, # cubeの上で手を安定させる
-            "grasp": 50, # cubeを掴む
-            "lift": 100, # cubeを持ち上げる
-            # "to_box": 100, # cubeを箱の上に持っていく
-            # "stabilize_box": 50, # cubeを箱の上で安定させる
-            # "release": 100, # cubeを離す
-        }
+    stage_dict = {
+        "hover": 100, # cubeの上に手を持っていく
+        "stabilize": 50, # cubeの上で手を安定させる
+        "grasp": 100, # cubeを掴む
+        "lift": 100, # cubeを持ち上げる
+        "to_box": 100, # cubeを箱の上に持っていく
+        "stabilize_box": 50, # cubeを箱の上で安定させる
+        "release": 100, # cubeを離す
+    }
     main(episode_num=1, task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, show_viewer=False)
