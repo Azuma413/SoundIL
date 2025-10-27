@@ -55,7 +55,7 @@ class TestTask:
             morph=gs.morphs.Plane(),
             surface=gs.surfaces.Plastic(diffuse_texture=gs.textures.ImageTexture(image_path="images/wood.jpg"))
         )
-        self.so_arm = self.scene.add_entity(gs.morphs.MJCF(file="URDF/so101_new_calib.xml"))
+        self.so_arm = self.scene.add_entity(gs.morphs.MJCF(file="URDF/so101/so101_new_calib.xml"))
         self.cubeA = self.scene.add_entity(
             gs.morphs.Box(size=(0.03, 0.03, 0.03), pos=(0.45, 0.0, 0.02)),
             material=gs.materials.Rigid(rho=50, friction=1.5, coup_friction=1.0, coup_softness=0.001),
