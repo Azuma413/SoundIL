@@ -1,12 +1,11 @@
-import genesis as gs
-import os
-import sys
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 import numpy as np
 from PIL import Image
+import os
+import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from env.genesis_env import GenesisEnv
-from env.tasks.sound import joints_name
+from env.tasks.normal import joints_name, AGENT_DIM
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 saved_cube_pos = None
 is_first_call = True
@@ -14,8 +13,12 @@ is_first_call = True
 def expert_policy(env, stage):
     global saved_cube_pos, is_first_call
     task = env._env
-    cube_pos = task.cubeA.get_pos().cpu().numpy()
-    cube_pos2 = task.cubeB.get_pos().cpu().numpy()
+    if task.color == "red":
+        cube_pos = task.cubeR.get_pos().cpu().numpy()
+    elif task.color == "blue":
+        cube_pos = task.cubeB.get_pos().cpu().numpy()
+    elif task.color == "green":
+        cube_pos = task.cubeG.get_pos().cpu().numpy()
     box_pos = task.box.get_pos().cpu().numpy()
     grip_close = np.array([0.0])
     grip_open = np.array([np.pi/3])
@@ -60,99 +63,88 @@ def expert_policy(env, stage):
     action = np.concatenate([qpos_arm, grip])
     return action.astype(np.float32)
 
-def initialize_dataset(task, height, width):
+def initialize_dataset(env: GenesisEnv) -> LeRobotDataset:
+    task = env.task
+    height = env.observation_height
+    width = env.observation_width
     dict_idx = 0
     dataset_path = f"datasets/{task}_{dict_idx}"
     while os.path.exists(f"datasets/{task}_{dict_idx}"):
         dict_idx += 1
         dataset_path = f"datasets/{task}_{dict_idx}"
+    # env.observation_spaceの内容に基づいてfeaturesを定義
+    features = {"action": {"dtype": "float32", "shape": (AGENT_DIM,), "names": joints_name}}
+    for key, space in env.observation_space.spaces.items():
+        if key == "observation.state":
+            features[key] = {"dtype": "float32", "shape": (8,), "names": joints_name}
+        elif key.startswith("observation.images"):
+            # すべての画像は3チャンネル（sound0, sound1, specも含む）
+            features[key] = {"dtype": "video", "shape": (height, width, 3), "names": ("height", "width", "channels")}
     lerobot_dataset = LeRobotDataset.create(
         repo_id=None,
         fps=30,
         root=dataset_path,
-        robot_type="franka",
+        robot_type="so-101",
         use_videos=True,
-        features={
-            "observation.state": {"dtype": "float32", "shape": (8,), "names": joints_name},
-            "action": {"dtype": "float32", "shape": (6,), "names": joints_name},
-            "observation.images.front": {"dtype": "video", "shape": (height, width, 3), "names": ("height", "width", "channels")},
-            "observation.images.side": {"dtype": "video", "shape": (height, width, 3), "names": ("height", "width", "channels")},
-            "observation.images.sound": {"dtype": "video", "shape": (height, width, 3), "names": ("height", "width", "channels")},
-        },
+        features=features,
+        # batch_encoding_size=10,
+        batch_encoding_size=1,
     )
     return lerobot_dataset
 
-def main(task, stage_dict, observation_height=480, observation_width=640, episode_num=1, show_viewer=False):
-    gs.init(backend=gs.gpu, precision="32")
-    env = GenesisEnv(task=task, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
-    dataset = initialize_dataset(task, observation_height, observation_width)
-    if task == "sound":
-        dummy_dataset = initialize_dataset("dummy", observation_height, observation_width)
+def main(task, stage_dict, observation_height=480, observation_width=640, episode_num=1, show_viewer=False, sound_config=None):
+    env = GenesisEnv(task=task, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer, sound_config=sound_config)
+    dataset = initialize_dataset(env)
     ep = 0
     while ep < episode_num:
         print(f"\n🎬 Starting episode {ep+1}")
         env.reset()
-        states, images_front, images_side, images_sound, actions = [], [], [], [], []
-        reward_greater_than_zero = False
+        obs_dict = {"action": []}
+        for key in env.observation_space.spaces.keys():
+            obs_dict[key] = []
+        save_flag = False
         for stage in stage_dict.keys():
             print(f"  Stage: {stage}")
             for t in range(stage_dict[stage]):
                 action = expert_policy(env, stage)
                 obs, reward, _, _, _ = env.step(action)
-                states.append(obs["agent_pos"])
-                images_front.append(obs["observation.images.front"])
-                images_side.append(obs["observation.images.side"])
-                images_sound.append(obs["observation.images.sound"])
-                actions.append(action)
+                obs_dict["action"].append(action)
+                for key in obs.keys():
+                    if key in obs_dict.keys():
+                        obs_dict[key].append(obs[key])
                 if reward > 0:
-                    reward_greater_than_zero = True
-        # if not reward_greater_than_zero:
-        #     print(f"🚫 Skipping episode {ep+1} — reward was always 0")
+                    save_flag = True
+        # if not save_flag:
+        #     print(f"🚫 Skipping episode {ep+1}")
         #     continue
         print(f"✅ Saving episode {ep+1}")
         ep += 1
-        for i in range(len(states)):
-            image_front = images_front[i]
-            if isinstance(image_front, Image.Image):
-                image_front = np.array(image_front)
-            image_side = images_side[i]
-            if isinstance(image_side, Image.Image):
-                image_side = np.array(image_side)
-            image_sound = images_sound[i]
-            if isinstance(image_sound, Image.Image):
-                image_sound = np.array(image_sound)
-            dataset.add_frame({
-                "observation.state": states[i].astype(np.float32),
-                "action": actions[i].astype(np.float32),
-                "observation.images.front": image_front,
-                "observation.images.side": image_side,
-                "observation.images.sound": image_sound,
-                "task": "pick cube with sound",
-            })
-            if task == "sound": # sound taskの場合はdummyデータセットも同時に収集
-                dummy_dataset.add_frame({
-                    "observation.state": states[i].astype(np.float32),
-                    "action": actions[i].astype(np.float32),
-                    "observation.images.front": image_front,
-                    "observation.images.side": image_side,
-                    "observation.images.sound": np.zeros_like(image_sound),
-                    "task": "pick cube without sound",
-                })
+        for i in range(len(obs_dict["action"])):
+            obs = {"task": env.get_task_description()}
+            for key in obs_dict.keys():
+                if key.startswith("observation.images") and isinstance(obs_dict[key][i], Image.Image):
+                    obs_dict[key][i] = np.array(obs_dict[key][i])
+                obs[key] = obs_dict[key][i]
+            dataset.add_frame(obs)
         dataset.save_episode()
-        if task == "sound":
-            dummy_dataset.save_episode()
     env.close()
 
 if __name__ == "__main__":
     # datasetを作成したいタスクを指定
-    task = "test" # [test, sound, marker_sound, weighted_sound, 2sound, marker_2sound, weighted_2sound, test_sound]
+    task = "sound-m6-fo-so" # "normal"
     stage_dict = {
-        "hover": 100, # cubeの上に手を持っていく
-        "stabilize": 50, # cubeの上で手を安定させる
-        "grasp": 100, # cubeを掴む
-        "lift": 100, # cubeを持ち上げる
-        "to_box": 100, # cubeを箱の上に持っていく
-        "stabilize_box": 50, # cubeを箱の上で安定させる
-        "release": 100, # cubeを離す
+        "hover": 10, # cubeの上に手を持っていく
+        # "hover": 100, # cubeの上に手を持っていく
+        # "stabilize": 50, # cubeの上で手を安定させる
+        # "grasp": 100, # cubeを掴む
+        # "lift": 100, # cubeを持ち上げる
+        # "to_box": 100, # cubeを箱の上に持っていく
+        # "stabilize_box": 50, # cubeを箱の上で安定させる
+        # "release": 100, # cubeを離す
     }
-    main(episode_num=1, task=task, stage_dict=stage_dict, observation_height=480, observation_width=640, show_viewer=False)
+    # sound_config = SoundConfig()
+    sound_config = None # Noneならタスクごとのデフォルト値が使われる．
+    main(episode_num=1, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
+
+# normal: 音は関係なく，赤，青，緑のCubeから指定された色のCubeを箱に入れるタスク
+# sound-m3-fo-sx: mはマイクの数, fは特徴量マップを使うかどうか，sはスペクトログラムを使うかどうか

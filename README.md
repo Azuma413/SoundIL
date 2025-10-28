@@ -31,8 +31,8 @@
 git clone --recurse-submodules https://github.com/Azuma413/SoundIL.git
 cd SoundIL
 uv sync
-uv pip install -e "Genesis/[dev]"
-uv pip install -e "lerobot/[feetech]"
+uv pip install -e "Genesis"
+uv pip install -e "lerobot/[smolvla, pi]"
 uv pip uninstall torch torchvision
 uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 ```

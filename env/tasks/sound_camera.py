@@ -20,6 +20,7 @@ class SoundConfig:
     
     # マイクロフォンアレイ関連
     mic_array_num: int = 3  # マイクロフォンアレイの数
+    mic_array_radius: float = 0.25 # 円形に配置する場合のアレイの半径（メートル）
     mics_per_array: int = 8  # 各アレイのマイク数
     mic_radius: float = 0.035  # アレイの半径（メートル）
     
@@ -57,21 +58,13 @@ class SoundConfig:
     feature_threshold: float = 0.9  # 2値化の閾値
     marker_size: int = 5  # マーカーのサイズ
     
-    # 部屋の設定
-    room_corners: np.ndarray = field(default_factory=lambda: np.array([
-        [-0.5, 1.0],
-        [1.5, 1.0],
-        [1.5, -1.0],
-        [-0.5, -1.0],
-    ]).T)
     room_height: float = 3.0  # 部屋の高さ
-    
-    # マイク位置（自動生成されない場合に使用）
-    mic_positions: Optional[List[List[float]]] = None
     
     # 音源ファイル関連
     audio_file_path: Optional[str] = None  # 音源ファイルのパス（Noneの場合はホワイトノイズ）
     noise_intensity: float = 0.0  # ノイズ強度（マイク信号に加算するノイズの強度）
+    # Cubeの色
+    same_color: bool = True
 
 
 class SoundCamera:
@@ -83,10 +76,7 @@ class SoundCamera:
         self.frames = []
         
         # マイクロフォン位置の初期化
-        if config.mic_positions is not None and len(config.mic_positions) == config.mic_array_num:
-            self.mic_positions = config.mic_positions
-        else:
-            self.mic_positions = self._generate_default_mic_positions()
+        self.mic_positions = self._generate_default_mic_positions()
         
         # 音声ファイルの読み込み
         self.audio_signal = None
@@ -115,53 +105,27 @@ class SoundCamera:
         positions = []
         for i in range(self.config.mic_array_num):
             theta = np.pi * (4*i - self.config.mic_array_num + 2) / (2 * self.config.mic_array_num)
-            x = 5 + 2 * np.cos(theta)
-            y = 5 + 2 * np.sin(theta)
-            positions.append([x, y, 0.3])
+            x = 5.0 + self.config.mic_array_radius * np.cos(theta)
+            y = 5.0 + self.config.mic_array_radius * np.sin(theta)
+            positions.append([x, y, 0.1])
         
         return positions
     
-    def start_recording(self):
-        """録画を開始"""
-        self.frames = []
-    
-    def stop_recording(self, save_to_filename: str, fps: int = 30):
-        """録画を停止し、ビデオファイルに保存"""
-        if not self.frames:
-            print("Warning: No frames to save.")
-            return
-        
-        sound_image = np.array(self.frames)
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        out = cv2.VideoWriter(
-            save_to_filename,
-            fourcc,
-            fps,
-            (self.config.observation_width, self.config.observation_height)
-        )
-        
-        for i in range(sound_image.shape[0]):
-            frame_to_write = sound_image[i]
-            if frame_to_write.dtype != np.uint8:
-                frame_to_write = frame_to_write.astype(np.uint8)
-            out.write(frame_to_write)
-        
-        out.release()
-        self.frames = []
-    
-    def render(self) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    def render(self) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
         """
         SoundMapとスペクトログラムを生成
         
         Returns:
-            sound_map: (height, width, channels) の画像 (uint8)
-            spectrogram: use_spectrogram=Trueの場合のスペクトログラム、それ以外はNone
+            sound_map0: (height, width, 3) の画像 (uint8) - チャンネル0-2
+            sound_map1: (height, width, 3) の画像 (uint8) - チャンネル3-5
+            spectrogram: (height, width, 3) の画像 (uint8) or None
         """
         # 音源位置の取得
-        sound_pos = self.target.get_pos() if self.target is not None else torch.tensor([0.5, 0.3, 0.1])
+        sound_pos = self.target.get_pos()
         if isinstance(sound_pos, torch.Tensor):
             sound_pos = sound_pos.cpu().numpy()
-        
+        # genesisの座標系からpyroomacousticsの座標系へ変換
+        sound_pos += np.array([4.85, 5.0, 0.0])
         mic_signals_list, music_results = self._simulate_all_arrays(sound_pos)
         
         # 各マイクアレイのMUSIC結果からSoundMapを生成
@@ -206,7 +170,11 @@ class SoundCamera:
         if self.config.use_temporal_smoothing:
             sound_map_array = self._apply_temporal_smoothing(sound_map_array)
         
-        # フレームに追加
+        # チャンネルを2つの3チャンネル画像に分割
+        sound_map0 = self._split_channels(sound_map_array, 0, 3)
+        sound_map1 = self._split_channels(sound_map_array, 3, 6)
+        
+        # フレームに追加（元の配列を追加）
         self.frames.append(sound_map_array)
         
         # スペクトログラム生成
@@ -217,8 +185,11 @@ class SoundCamera:
                 mic_signals_list,
                 music_results
             )
+            # スペクトログラムを3チャンネルに変換
+            if spectrogram is not None:
+                spectrogram = self._pad_to_3ch(spectrogram)
         
-        return sound_map_array, spectrogram
+        return sound_map0, sound_map1, spectrogram
     
     def _simulate_all_arrays(
         self,
@@ -338,8 +309,7 @@ class SoundCamera:
         spec /= np.sum(spec)
         
         # 部屋のサイズとマップの解像度
-        room_size = 10.0  # 部屋のサイズ（10x10）
-        map_scale = self.config.observation_height / room_size
+        map_scale = self.config.observation_height / self.config.mic_array_radius / 2.0
         
         # マイク中心位置
         cx = mic_center[0]
@@ -657,3 +627,64 @@ class SoundCamera:
         phase = -2j * np.pi * freqs[:, None] * taus[None, :]
         
         return np.exp(phase)
+    
+    def _split_channels(
+        self,
+        array: np.ndarray,
+        start_ch: int,
+        end_ch: int
+    ) -> np.ndarray:
+        """
+        配列から指定範囲のチャンネルを抽出し、3チャンネルにゼロ埋め
+        
+        Args:
+            array: (height, width, channels) の画像
+            start_ch: 開始チャンネル
+            end_ch: 終了チャンネル（含まない）
+        
+        Returns:
+            result: (height, width, 3) の画像（不足分はゼロ埋め）
+        """
+        height, width, total_channels = array.shape
+        
+        # 3チャンネルの配列を作成（ゼロで初期化）
+        result = np.zeros((height, width, 3), dtype=array.dtype)
+        
+        # 利用可能なチャンネル数を計算
+        available_channels = min(end_ch, total_channels) - start_ch
+        available_channels = max(0, available_channels)  # 負の値を防ぐ
+        
+        # チャンネルをコピー（最大3チャンネル）
+        for i in range(min(available_channels, 3)):
+            if start_ch + i < total_channels:
+                result[:, :, i] = array[:, :, start_ch + i]
+        
+        return result
+    
+    def _pad_to_3ch(self, array: np.ndarray) -> np.ndarray:
+        """
+        2D配列または1/2チャンネル配列を3チャンネルにゼロ埋め
+        
+        Args:
+            array: (height, width) または (height, width, 1) または (height, width, 2)
+        
+        Returns:
+            result: (height, width, 3)
+        """
+        if array.ndim == 2:
+            # 2D配列の場合、3チャンネルに拡張
+            result = np.zeros((array.shape[0], array.shape[1], 3), dtype=array.dtype)
+            result[:, :, 0] = array
+        elif array.ndim == 3:
+            if array.shape[2] == 3:
+                # 既に3チャンネルの場合はそのまま返す
+                return array
+            else:
+                # 1または2チャンネルの場合、3チャンネルにゼロ埋め
+                result = np.zeros((array.shape[0], array.shape[1], 3), dtype=array.dtype)
+                for i in range(min(array.shape[2], 3)):
+                    result[:, :, i] = array[:, :, i]
+        else:
+            raise ValueError(f"Unsupported array shape: {array.shape}")
+        
+        return result

@@ -14,23 +14,24 @@ joints_name = (
 )
 AGENT_DIM = len(joints_name)
 
-class TestTask:
-    def __init__(self, observation_height, observation_width, show_viewer=False, dummy=False, device="cuda"):
+class NormalTask:
+    def __init__(self, observation_height, observation_width, show_viewer=False, device="cuda", same_color=False):
         self.device = device
+        self.same_color = same_color
         self.show_viewer = show_viewer
         self.observation_height = observation_height
         self.observation_width = observation_width
         self._random = np.random.RandomState()
         self.box_scale = 0.75
-        self._build_scene(show_viewer, dummy)
+        self._build_scene(show_viewer)
         self.observation_space = self._make_obs_space()
-        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(8,), dtype=np.float32)
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(AGENT_DIM,), dtype=np.float32)
 
-    def _build_scene(self, show_viewer, dummy):
+    def _build_scene(self, show_viewer):
         if not gs._initialized:
             print("Genesis is not initialized, initializing now...")
             if self.device == "cuda":
-                gs.init(backend=gs.gpu, precision="32", debug=False, logging_level="WARNING")
+                gs.init(backend=gs.gpu, precision="32", debug=False, logging_level="INFO")
             elif self.device == "cpu":
                 gs.init(backend=gs.cpu, precision="32", debug=False, logging_level="WARNING")
             else:
@@ -56,15 +57,20 @@ class TestTask:
             surface=gs.surfaces.Plastic(diffuse_texture=gs.textures.ImageTexture(image_path="images/wood.jpg"))
         )
         self.so_arm = self.scene.add_entity(gs.morphs.MJCF(file="URDF/so101/so101_new_calib.xml"))
-        self.cubeA = self.scene.add_entity(
+        self.cubeR = self.scene.add_entity(
             gs.morphs.Box(size=(0.03, 0.03, 0.03), pos=(0.45, 0.0, 0.02)),
             material=gs.materials.Rigid(rho=50, friction=1.5, coup_friction=1.0, coup_softness=0.001),
-            surface=gs.surfaces.Plastic(color=(0.3, 0.7, 0.3)) if dummy else gs.surfaces.Plastic(color=(0.7, 0.3, 0.3))
+            surface=gs.surfaces.Plastic(color=(0.7, 0.3, 0.3)) if not self.same_color else gs.surfaces.Plastic(color=(0.3, 0.7, 0.3)),
+        )
+        self.cubeG = self.scene.add_entity(
+            gs.morphs.Box(size=(0.03, 0.03, 0.03), pos=(0.30, 0.0, 0.02)),
+            material=gs.materials.Rigid(rho=50, friction=1.5, coup_friction=1.0, coup_softness=0.001),
+            surface=gs.surfaces.Plastic(color=(0.3, 0.7, 0.3))
         )
         self.cubeB = self.scene.add_entity(
             gs.morphs.Box(size=(0.03, 0.03, 0.03), pos=(0.15, 0.0, 0.02)),
             material=gs.materials.Rigid(rho=50, friction=1.5, coup_friction=1.0, coup_softness=0.001),
-            surface=gs.surfaces.Plastic(color=(0.3, 0.7, 0.3)) if dummy else gs.surfaces.Plastic(color=(0.3, 0.3, 0.7))
+            surface=gs.surfaces.Plastic(color=(0.3, 0.3, 0.7)) if not self.same_color else gs.surfaces.Plastic(color=(0.3, 0.7, 0.3)),
         )
         self.box = self.scene.add_entity(
             gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.3, 0.0, 0.0), scale=self.box_scale),
@@ -84,11 +90,6 @@ class TestTask:
             fov=20,
             GUI=False
         )
-        self.sound_cam = DummyCamera(
-            self.cubeA,
-            observation_height=self.observation_height,
-            observation_width=self.observation_width
-        )
         self.scene.build()
         self.motors_dof = np.arange(5)
         self.fingers_dof = np.arange(5, 6)
@@ -96,10 +97,9 @@ class TestTask:
 
     def _make_obs_space(self):
         return spaces.Dict({
-            "agent_pos": spaces.Box(low=-np.inf, high=np.inf, shape=(AGENT_DIM,), dtype=np.float32),
+            "observation.state": spaces.Box(low=-np.inf, high=np.inf, shape=(8,), dtype=np.float32),
             "observation.images.front": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
             "observation.images.side": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
-            "observation.images.sound": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
         })
 
     def set_random_state(self, target, x_range, y_range, z):
@@ -112,14 +112,22 @@ class TestTask:
         target.set_quat(quat_tensor)
 
     def reset(self):
+        self.color = random.choice(["red", "green", "blue"])
         pos_tensor = torch.tensor([0.3, 0.0, 0.0], dtype=torch.float32, device=gs.device)
         quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
         self.box.set_pos(pos_tensor)
         self.box.set_quat(quat_tensor)
-        self.set_random_state(self.cubeA, (0.15, 0.3), (-0.2, 0.2), 0.02) # 1回は必ず呼び出す
-        while self.compute_reward() == 1.0:
-            print("CubeA is in the box, resetting position...")
-            self.set_random_state(self.cubeA, (0.15, 0.3), (-0.2, 0.2), 0.02)
+        # CubeRの位置をランダムに設定
+        self.set_random_state(self.cubeR, (0.15, 0.3), (-0.2, 0.2), 0.02) # 1回は必ず呼び出す
+        while self.compute_reward(target="cubeR") == 1.0:
+            print("CubeR is in the box, resetting position...")
+            self.set_random_state(self.cubeR, (0.15, 0.3), (-0.2, 0.2), 0.02)
+        # CubeGの位置をランダムに設定
+        self.set_random_state(self.cubeG, (0.15, 0.3), (-0.2, 0.2), 0.02)
+        while self.compute_reward(target="cubeG") == 1.0:
+            print("CubeG is in the box, resetting position...")
+            self.set_random_state(self.cubeG, (0.15, 0.3), (-0.2, 0.2), 0.02)
+        # CubeBの位置をランダムに設定
         self.set_random_state(self.cubeB, (0.15, 0.3), (-0.2, 0.2), 0.02)
         while self.compute_reward(target="cubeB") == 1.0:
             print("CubeB is in the box, resetting position...")
@@ -142,7 +150,6 @@ class TestTask:
         self.scene.step()
         self.front_cam.start_recording()
         self.side_cam.start_recording()
-        self.sound_cam.start_recording()
         return self.get_obs(), {}
 
     def seed(self, seed):
@@ -165,12 +172,26 @@ class TestTask:
         info = {}
         return obs, reward, terminated, truncated, info
 
-    def compute_reward(self, target="cubeA"):
-        # CubeAがboxの中にあるかどうかをチェック
-        if target == "cubeA":
-            pos = self.cubeA.get_pos().cpu().numpy()
-        elif target == "cubeB":
-            pos = self.cubeB.get_pos().cpu().numpy()
+    def compute_reward(self, target=None):
+        # CubeがBoxの中にあるかどうかを判定
+        if target is not None:
+            if target == "cubeR":
+                pos = self.cubeR.get_pos().cpu().numpy()
+            elif target == "cubeG":
+                pos = self.cubeG.get_pos().cpu().numpy()
+            elif target == "cubeB":
+                pos = self.cubeB.get_pos().cpu().numpy()
+            else:
+                raise ValueError(f"Invalid target: {target}. Choose from 'cubeR', 'cubeG', or 'cubeB'.")
+        else:
+            if self.color == "red":
+                pos = self.cubeR.get_pos().cpu().numpy()
+            elif self.color == "blue":
+                pos = self.cubeB.get_pos().cpu().numpy()
+            elif self.color == "green":
+                pos = self.cubeG.get_pos().cpu().numpy()
+            else:
+                raise ValueError(f"Invalid color: {self.color}. Choose from 'red', 'blue', or 'green'.")
         box_pos = self.box.get_pos().cpu().numpy()
         box_size = np.array([0.1, 0.1, 0.05])*self.box_scale  # Boxのサイズを取得
         cube_in_box = (
@@ -190,50 +211,39 @@ class TestTask:
         assert front_pixels.ndim == 3, f"front_pixels shape {front_pixels.shape} is not 3D (H, W, 3)"
         side_pixels = self.side_cam.render()[0]
         assert side_pixels.ndim == 3, f"side_pixels shape {side_pixels.shape} is not 3D (H, W, 3)"
-        sound_pixels = self.sound_cam.render()[0]
-        assert sound_pixels.ndim == 3, f"sound_pixels shape {sound_pixels.shape} is not 3D (H, W, 3)"
         obs = {
-            "agent_pos": agent_pos,
+            "observation.state": agent_pos,
             "observation.images.front": front_pixels,
             "observation.images.side": side_pixels,
-            "observation.images.sound": sound_pixels,
         }
         return obs
 
     def save_videos(self, file_name, fps=30):
         self.front_cam.stop_recording(save_to_filename=f"{file_name}_front.mp4", fps=fps)
         self.side_cam.stop_recording(save_to_filename=f"{file_name}_side.mp4", fps=fps)
-        self.sound_cam.stop_recording(save_to_filename=f"{file_name}_sound.mp4", fps=fps)
 
     def close(self):
         gs.destroy()
-class DummyCamera:
-    def __init__(self, target, observation_height, observation_width):
-        self.observation_height = observation_height
-        self.observation_width = observation_width
-    def start_recording(self):
-        pass
-    def stop_recording(self, save_to_filename, fps):
-        pass
-    def render(self):
-        dummy_image = np.zeros((self.observation_height, self.observation_width, 3), dtype=np.uint8)
-        return dummy_image, None
+    
+    def get_task_description(self):
+        return f"Pick up a {self.color} cube and place it in a box."
 
 if __name__ == "__main__":
     import cv2
     gs.init(backend=gs.gpu, precision="32")
-    task = TestTask(observation_height=480, observation_width=640, show_viewer=False)
+    task = NormalTask(observation_height=480, observation_width=640, show_viewer=False)
     task.reset()
+    print("box pos: ", task.box.get_pos().cpu().numpy())
     # for _ in range(100):
     #     action = np.random.uniform(-1.0, 1.0, size=(AGENT_DIM,))
     #     task.step(action)
     # 最後の画像を保存
-    obs = task.get_obs()
-    for key, value in obs.items():
-        if key == "agent_pos" or key == "sound":
-            continue
-        # rgbの入れ替え
-        if value.shape[2] == 3:
-            value = cv2.cvtColor(value, cv2.COLOR_RGB2BGR)
-        print(f"{key}: {value.shape}")
-        cv2.imwrite(f"images/{key}.png", value)
+    # obs = task.get_obs()
+    # for key, value in obs.items():
+    #     if key == "observation.state":
+    #         continue
+    #     # rgbの入れ替え
+    #     if value.shape[2] == 3:
+    #         value = cv2.cvtColor(value, cv2.COLOR_RGB2BGR)
+    #     print(f"{key}: {value.shape}")
+    #     cv2.imwrite(f"images/{key}.png", value)
