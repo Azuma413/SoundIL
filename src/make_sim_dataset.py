@@ -131,7 +131,7 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
 
 if __name__ == "__main__":
     # datasetを作成したいタスクを指定
-    task = "sound-m6-fo-so" # "normal"
+    task = "sound-m6-fx-so" # "normal"
     stage_dict = {
         "hover": 10, # cubeの上に手を持っていく
         # "hover": 100, # cubeの上に手を持っていく
@@ -147,4 +147,4 @@ if __name__ == "__main__":
     main(episode_num=1, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
 
 # normal: 音は関係なく，赤，青，緑のCubeから指定された色のCubeを箱に入れるタスク
-# sound-m3-fo-sx: mはマイクの数, fは特徴量マップを使うかどうか，sはスペクトログラムを使うかどうか
+# sound-m3-fo-sx: mはマイクロフォンアレイの数, fは特徴量マップを使うかどうか，sはスペクトログラムを使うかどうか

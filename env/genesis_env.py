@@ -101,7 +101,7 @@ class GenesisEnv(gym.Env):
                     mic_array_num=mic_num,
                     use_spectrogram=use_spec,
                     use_feature=use_feat,
-                    audio_file_path=None,
+                    audio_file_path="sounds/1.wav", # None
                 )
             env = SoundTask(
                 observation_height=self.observation_height,
