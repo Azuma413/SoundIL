@@ -133,7 +133,7 @@ if __name__ == "__main__":
     # datasetを作成したいタスクを指定
     task = "sound-m6-fx-so" # "normal"
     stage_dict = {
-        "hover": 10, # cubeの上に手を持っていく
+        "hover": 30, # cubeの上に手を持っていく
         # "hover": 100, # cubeの上に手を持っていく
         # "stabilize": 50, # cubeの上で手を安定させる
         # "grasp": 100, # cubeを掴む

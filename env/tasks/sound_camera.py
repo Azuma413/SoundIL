@@ -20,7 +20,7 @@ class SoundConfig:
     mic_array_num: int = 6  # マイクロフォンアレイの数
     mic_array_radius: float = 0.25 # 円形に配置する場合のアレイの半径（メートル）
     mics_per_array: int = 8  # 各アレイのマイク数
-    mic_radius: float = 0.035  # アレイの半径（メートル）
+    mic_radius: float = 0.035  # マイクロフォンアレイにおけるマイクの配列の半径（メートル）
     # 音響シミュレーション関連
     fs: int = 16000  # サンプリング周波数
     nfft: int = 512  # FFT長
@@ -52,6 +52,7 @@ class SoundConfig:
     noise_intensity: float = 0.0  # ノイズ強度（マイク信号に加算するノイズの強度）
     # Cubeの色
     same_color: bool = True
+    update_freq: int = 10 # update_freq回呼び出されるごとに情報を更新
 
 class SoundCamera:
     """音響シミュレーションとSoundMap生成を行うカメラクラス"""
@@ -74,6 +75,11 @@ class SoundCamera:
                 (config.observation_height, config.observation_width, num_channels),
                 dtype=np.float32
             ) * 127.5
+        # 更新頻度管理用
+        self.call_count = 0
+        self.cached_sound_map0 = None
+        self.cached_sound_map1 = None
+        self.cached_spectrogram = None
     
     def _load_audio_file(self, audio_file_path: str):
         """音声ファイルを読み込む（WAV、MP3など）"""
@@ -101,6 +107,14 @@ class SoundCamera:
             sound_map1: (height, width, 3) の画像 (uint8) - チャンネル3-5
             spectrogram: (height, width, 3) の画像 (uint8) or None
         """
+        # 更新頻度のチェック
+        should_update = (self.call_count % self.config.update_freq == 0)
+        self.call_count += 1
+        
+        # キャッシュが存在し、更新不要な場合は古い画像を返す
+        if not should_update and self.cached_sound_map0 is not None:
+            return self.cached_sound_map0, self.cached_sound_map1, self.cached_spectrogram
+        
         # 音源位置の取得
         sound_pos = self.target.get_pos()
         if isinstance(sound_pos, torch.Tensor):
@@ -152,6 +166,12 @@ class SoundCamera:
             )
             if spectrogram is not None:
                 spectrogram = self._pad_to_3ch(spectrogram)
+        
+        # 生成した画像をキャッシュに保存
+        self.cached_sound_map0 = sound_map0
+        self.cached_sound_map1 = sound_map1
+        self.cached_spectrogram = spectrogram
+        
         return sound_map0, sound_map1, spectrogram
     
     def _simulate_all_arrays(
@@ -244,12 +264,10 @@ class SoundCamera:
         """DOA推定結果からSoundMapを生成（test.pyのmake_2dmap方式）"""
         spec = np.log10(np.mean(doa.Pssl, axis=1))
         spec /= np.sum(spec) # リファレンスコードのmake_2dmap内の正規化
-        # 部屋のサイズとマップの解像度
-        room_size = 10.0 # リファレンスコードの部屋サイズ
-        map_scale = self.config.observation_height / room_size
-        # マイク中心位置
-        cx = mic_center[0]
-        cy = mic_center[1]
+        # マップの解像度
+        map_scale = self.config.observation_height / (2*self.config.mic_array_radius)
+        cx = mic_center[0] - 5.0 + self.config.mic_array_radius
+        cy = mic_center[1] - 5.0 + self.config.mic_array_radius
         # 2Dマップを生成
         sound_map = np.zeros((self.config.observation_height, self.config.observation_width))
         for i in range(self.config.observation_height):
@@ -416,6 +434,7 @@ class SoundCamera:
             nfft=self.config.nfft,
             noverlap=self.config.nfft // 2
         )
+        final_wav = final_wav[:int(self.config.fs * self.config.processing_time)]
         f, t, Zxx = stft(
             final_wav, 
             fs=self.config.fs, 
