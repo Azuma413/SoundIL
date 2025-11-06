@@ -36,7 +36,7 @@ class SoundConfig:
     beamform_normalize: bool = True  # ビームフォーミング出力の正規化
     # スペクトログラム関連
     use_spectrogram: bool = False  # スペクトログラムを返すか
-    nmf_components: int = 100  # NMFの成分数
+    nmf_components: int = 50  # NMFの成分数
     nmf_threshold: float = 1.6e-3  # NMFマスクの閾値
     # 画像処理オプション
     use_gaussian_filter: bool = False  # SoundMapにガウシアンフィルタ
@@ -52,7 +52,7 @@ class SoundConfig:
     noise_intensity: float = 0.0  # ノイズ強度（マイク信号に加算するノイズの強度）
     # Cubeの色
     same_color: bool = True
-    update_freq: int = 10 # update_freq回呼び出されるごとに情報を更新
+    update_freq: int = 5 # update_freq回呼び出されるごとに情報を更新
 
 class SoundCamera:
     """音響シミュレーションとSoundMap生成を行うカメラクラス"""
@@ -355,7 +355,7 @@ class SoundCamera:
         concatenated_spec = np.concatenate(all_amp_specs, axis=1)
         # F, T_total = concatenated_spec.shape
         # T_frame = all_amp_specs[0].shape[1]
-        model = NMF(n_components=n_components, init='random', random_state=0, max_iter=500, tol=1e-4)
+        model = NMF(n_components=n_components, init='nndsvd', random_state=0, max_iter=2000, tol=1e-3)
         W = model.fit_transform(concatenated_spec)
         H = model.components_
         split_H = np.array_split(H, M, axis=1)

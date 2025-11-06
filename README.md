@@ -51,15 +51,16 @@ POLICYはact, diffusion, pi0のいずれかを指定します．
 ```bash
 export DATASET_NAME=[データセット名]
 export POLICY=act
-uv run lerobot/lerobot/scripts/train.py \
+uv run lerobot-train \
   --dataset.repo_id=local/${DATASET_NAME} \
   --dataset.root=datasets/${DATASET_NAME} \
   --policy.type=$POLICY \
-  --output_dir=outputs/train/${POLICY}-${DATASET_NAME} \
-  --job_name=${POLICY}-${DATASET_NAME} \
+  --output_dir=outputs/train/${POLICY}_${DATASET_NAME} \
+  --job_name=${POLICY}_${DATASET_NAME} \
   --policy.device=cuda \
+  --policy.push_to_hub=false \
   --wandb.enable=true \
   --wandb.disable_artifact=true \
   --batch_size=8 \
-  --steps=100000
+  --steps=10000
 ```

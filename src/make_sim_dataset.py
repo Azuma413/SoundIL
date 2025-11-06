@@ -114,9 +114,9 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
                         obs_dict[key].append(obs[key])
                 if reward > 0:
                     save_flag = True
-        # if not save_flag:
-        #     print(f"🚫 Skipping episode {ep+1}")
-        #     continue
+        if not save_flag:
+            print(f"🚫 Skipping episode {ep+1}")
+            continue
         print(f"✅ Saving episode {ep+1}")
         ep += 1
         for i in range(len(obs_dict["action"])):
@@ -133,18 +133,18 @@ if __name__ == "__main__":
     # datasetを作成したいタスクを指定
     task = "sound-m6-fx-so" # "normal"
     stage_dict = {
-        "hover": 30, # cubeの上に手を持っていく
-        # "hover": 100, # cubeの上に手を持っていく
-        # "stabilize": 50, # cubeの上で手を安定させる
-        # "grasp": 100, # cubeを掴む
-        # "lift": 100, # cubeを持ち上げる
-        # "to_box": 100, # cubeを箱の上に持っていく
-        # "stabilize_box": 50, # cubeを箱の上で安定させる
-        # "release": 100, # cubeを離す
+        # "hover": 30, # テスト用
+        "hover": 100, # cubeの上に手を持っていく
+        "stabilize": 50, # cubeの上で手を安定させる
+        "grasp": 100, # cubeを掴む
+        "lift": 100, # cubeを持ち上げる
+        "to_box": 100, # cubeを箱の上に持っていく
+        "stabilize_box": 50, # cubeを箱の上で安定させる
+        "release": 100, # cubeを離す
     }
     # sound_config = SoundConfig()
     sound_config = None # Noneならタスクごとのデフォルト値が使われる．
-    main(episode_num=1, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
+    main(episode_num=5, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
 
 # normal: 音は関係なく，赤，青，緑のCubeから指定された色のCubeを箱に入れるタスク
 # sound-m3-fo-sx: mはマイクロフォンアレイの数, fは特徴量マップを使うかどうか，sはスペクトログラムを使うかどうか
