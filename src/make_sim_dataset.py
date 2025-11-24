@@ -41,16 +41,16 @@ def expert_policy(env, stage):
         if is_first_call:
             saved_cube_pos = cube_pos
             is_first_call = False
-        target_pos = np.array([saved_cube_pos[0], saved_cube_pos[1], 0.15]) + offset
+        target_pos = np.array([saved_cube_pos[0], saved_cube_pos[1], 0.18]) + offset
         grip = grip_close  # keep closed
     elif stage == "to_box":
-        target_pos = box_pos + np.array([0.0, 0.0, 0.16]) + offset
+        target_pos = box_pos + np.array([0.0, 0.0, 0.18]) + offset
         grip = grip_close
     elif stage == "stabilize_box":
-        target_pos = box_pos + np.array([0.0, 0.0, 0.16]) + offset
+        target_pos = box_pos + np.array([0.0, 0.0, 0.18]) + offset
         grip = grip_close
     elif stage == "release":
-        target_pos = box_pos + np.array([0.0, 0.0, 0.16]) + offset
+        target_pos = box_pos + np.array([0.0, 0.0, 0.18]) + offset
         grip = grip_open
     else:
         raise ValueError(f"Unknown stage: {stage}")
@@ -103,15 +103,24 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
         for key in env.observation_space.spaces.keys():
             obs_dict[key] = []
         save_flag = False
+        
+        # reset後の初期観測を取得
+        current_obs = env.get_obs()
+        
         for stage in stage_dict.keys():
             print(f"  Stage: {stage}")
             for t in range(stage_dict[stage]):
                 action = expert_policy(env, stage)
-                obs, reward, _, _, _ = env.step(action)
+                
+                # 先に現在の観測とアクションを保存（obs[t]とaction[t]のペア）
                 obs_dict["action"].append(action)
-                for key in obs.keys():
+                for key in current_obs.keys():
                     if key in obs_dict.keys():
-                        obs_dict[key].append(obs[key])
+                        obs_dict[key].append(current_obs[key])
+                
+                # アクションを実行して次の観測を取得
+                current_obs, reward, _, _, _ = env.step(action)
+                
                 if reward > 0:
                     save_flag = True
         if not save_flag:
@@ -131,20 +140,19 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
 
 if __name__ == "__main__":
     # datasetを作成したいタスクを指定
-    task = "sound-m6-fx-so" # "normal"
+    task = "sound-m3-fx-sx" # "normal"
     stage_dict = {
-        # "hover": 30, # テスト用
-        "hover": 100, # cubeの上に手を持っていく
-        "stabilize": 50, # cubeの上で手を安定させる
-        "grasp": 100, # cubeを掴む
-        "lift": 100, # cubeを持ち上げる
-        "to_box": 100, # cubeを箱の上に持っていく
-        "stabilize_box": 50, # cubeを箱の上で安定させる
+        "hover": 80, # cubeの上に手を持っていく
+        "stabilize": 30, # cubeの上で手を安定させる
+        "grasp": 70, # cubeを掴む
+        "lift": 40, # cubeを持ち上げる
+        "to_box": 40, # cubeを箱の上に持っていく
+        "stabilize_box": 10, # cubeを箱の上で安定させる
         "release": 100, # cubeを離す
     }
     # sound_config = SoundConfig()
     sound_config = None # Noneならタスクごとのデフォルト値が使われる．
-    main(episode_num=5, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
+    main(episode_num=50, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
 
 # normal: 音は関係なく，赤，青，緑のCubeから指定された色のCubeを箱に入れるタスク
 # sound-m3-fo-sx: mはマイクロフォンアレイの数, fは特徴量マップを使うかどうか，sはスペクトログラムを使うかどうか

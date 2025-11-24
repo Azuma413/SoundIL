@@ -62,5 +62,5 @@ uv run lerobot-train \
   --wandb.enable=true \
   --wandb.disable_artifact=true \
   --batch_size=8 \
-  --steps=10000
+  --steps=100000
 ```

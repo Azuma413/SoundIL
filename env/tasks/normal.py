@@ -78,15 +78,15 @@ class NormalTask:
         )
         self.front_cam = self.scene.add_camera(
             res=(self.observation_width, self.observation_height),
-            pos=(1.5, 0.0, 0.4),
-            lookat=(0.3, 0.0, 0.1),
-            fov=20,
+            pos=(1.2, 0.0, 0.4),
+            lookat=(0.3, 0.0, 0.15),
+            fov=25,
             GUI=False
         )
         self.side_cam = self.scene.add_camera(
             res=(self.observation_width, self.observation_height),
-            pos=(0.3, 1.0, 1.0),
-            lookat=(0.3, 0.0, 0.05),
+            pos=(0.15, 0.8, 1.0),
+            lookat=(0.15, 0.0, 0.05),
             fov=20,
             GUI=False
         )
@@ -231,19 +231,19 @@ class NormalTask:
 if __name__ == "__main__":
     import cv2
     gs.init(backend=gs.gpu, precision="32")
-    task = NormalTask(observation_height=480, observation_width=640, show_viewer=False)
+    task = NormalTask(observation_height=224, observation_width=224, show_viewer=False)
     task.reset()
     print("box pos: ", task.box.get_pos().cpu().numpy())
-    # for _ in range(100):
-    #     action = np.random.uniform(-1.0, 1.0, size=(AGENT_DIM,))
-    #     task.step(action)
+    for _ in range(10):
+        action = np.random.uniform(-1.0, 1.0, size=(AGENT_DIM,))
+        task.step(action)
     # 最後の画像を保存
-    # obs = task.get_obs()
-    # for key, value in obs.items():
-    #     if key == "observation.state":
-    #         continue
-    #     # rgbの入れ替え
-    #     if value.shape[2] == 3:
-    #         value = cv2.cvtColor(value, cv2.COLOR_RGB2BGR)
-    #     print(f"{key}: {value.shape}")
-    #     cv2.imwrite(f"images/{key}.png", value)
+    obs = task.get_obs()
+    for key, value in obs.items():
+        if key == "observation.state":
+            continue
+        # rgbの入れ替え
+        if value.shape[2] == 3:
+            value = cv2.cvtColor(value, cv2.COLOR_RGB2BGR)
+        print(f"{key}: {value.shape}")
+        cv2.imwrite(f"images/{key}.png", value)

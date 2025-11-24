@@ -2,9 +2,9 @@ from pathlib import Path
 import imageio
 import numpy as np
 import torch
-from lerobot.common.policies.diffusion.modeling_diffusion import DiffusionPolicy
-from lerobot.common.policies.act.modeling_act import ACTPolicy
-from lerobot.common.policies.pi0.modeling_pi0 import PI0Policy
+from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
+from lerobot.policies.act.modeling_act import ACTPolicy
+from lerobot.policies.pi0.modeling_pi0 import PI0Policy
 import os
 import sys
 import time
@@ -32,10 +32,25 @@ def process_image_for_video(image_array, target_height, target_width):
         return np.zeros((target_height, target_width, 3), dtype=np.uint8)
     return image_array
 
-def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last", sim_device="cuda"):
-    start_time = time.time()
-    policy_list = ["act", "diffusion", "pi0"]
-    task_list = ["test", "sound", "marker_sound", "weighted_sound", "2sound", "marker_2sound", "weighted_2sound", "test_sound", "test_no_brank", "dummy"]
+def combine_frames(np_obs, observation_height, observation_width):
+    front_img = np_obs.get("observation.images.front")
+    side_img = np_obs.get("observation.images.side")
+    sound_img1 = np_obs.get("observation.images.sound0")
+    sound_img2 = np_obs.get("observation.images.sound1")
+    front_video_img = process_image_for_video(front_img, observation_height, observation_width)
+    side_video_img = process_image_for_video(side_img, observation_height, observation_width)
+    sound_video_img1 = process_image_for_video(sound_img1, observation_height, observation_width)
+    sound_video_img2 = process_image_for_video(sound_img2, observation_height, observation_width)
+    combined_h = observation_height * 2
+    combined_w = observation_width * 2
+    combined_frame = np.zeros((combined_h, combined_w, 3), dtype=np.uint8)
+    combined_frame[0:observation_height, 0:observation_width] = front_video_img
+    combined_frame[0:observation_height, observation_width:combined_w] = side_video_img
+    combined_frame[observation_height:combined_h, 0:observation_width] = sound_video_img1
+    combined_frame[observation_height:combined_h, observation_width:combined_w] = sound_video_img2
+    return combined_frame
+
+def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last"):
     output_directory = Path(f"outputs/eval/{training_name}_{checkpoint_step}")
     output_directory.mkdir(parents=True, exist_ok=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -45,14 +60,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
         print(f"Error: Pretrained model not found at {pretrained_policy_path}")
         return
     print(f"Loading policy from: {pretrained_policy_path}")
-    model_type = None
-    for p in policy_list:
-        if p in training_name:
-            model_type = p
-            break
-    if model_type is None:
-        print(f"Error: Unknown model type in training name '{training_name}'. Expected one of {policy_list}.")
-        return
+    model_type = training_name.split("_")[0]
     if model_type == "diffusion":
         policy = DiffusionPolicy.from_pretrained(pretrained_policy_path)
     elif model_type == "act":
@@ -64,18 +72,9 @@ def main(training_name, observation_height, observation_width, episode_num, show
         return
     policy.to(device)
     policy.eval()
-    task_name = None
-    for t in task_list:
-        if t in training_name:
-            task_name = t
+    task_name = training_name.split("_")[1]
     print(f"Detected task name: {task_name}")
-    if task_name is None:
-        print(f"Error: Unknown task name in training name '{training_name}'. Expected one of {task_list}.")
-        return
-    if task_name == "test_no_brank":
-        env = GenesisEnv(task="test", observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer, device=sim_device)
-    else:
-        env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer, device=sim_device)
+    env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
     print("Policy Input Features:", policy.config.input_features)
     print("Environment Observation Space:", env.observation_space)
     print("Policy Output Features:", policy.config.output_features)
@@ -88,18 +87,8 @@ def main(training_name, observation_height, observation_width, episode_num, show
         policy.reset()
         numpy_observation, _ = env.reset()
         rewards = []
-        frames = [] # Stores combined frames
-        front_img_obs = numpy_observation.get("observation.images.front")
-        side_img_obs = numpy_observation.get("observation.images.side")
-        sound_img_obs = numpy_observation.get("observation.images.sound")
-        front_video_img = process_image_for_video(front_img_obs, observation_height, observation_width)
-        side_video_img = process_image_for_video(side_img_obs, observation_height, observation_width)
-        sound_video_img = process_image_for_video(sound_img_obs, observation_height, observation_width)
-        combined_frame = np.zeros((combined_video_h, combined_video_w, 3), dtype=np.uint8)
-        combined_frame[0:observation_height, 0:observation_width] = front_video_img
-        combined_frame[0:observation_height, observation_width:combined_video_w] = side_video_img
-        sound_start_w = (combined_video_w - observation_width) // 2
-        combined_frame[observation_height:combined_video_h, sound_start_w : sound_start_w + observation_width] = sound_video_img
+        frames = []  # Stores combined frames
+        combined_frame = combine_frames(numpy_observation, observation_height, observation_width)
         frames.append(combined_frame)
         step = 0
         done = False
@@ -107,38 +96,18 @@ def main(training_name, observation_height, observation_width, episode_num, show
             observation = {}
             for key in policy.config.input_features:
                 if key == "observation.state":
-                    data = numpy_observation["agent_pos"]
+                    data = numpy_observation[key]
                     tensor_data = torch.from_numpy(data).to(torch.float32)
                     observation[key] = tensor_data.to(device).unsqueeze(0)
-                elif key == "observation.images.front":
-                    img = numpy_observation["observation.images.front"]
-                    img = img.copy()  # 負のstride対策
-                    tensor_img = torch.from_numpy(img).to(torch.float32) / 255.0
-                    if tensor_img.ndim == 3 and tensor_img.shape[2] in [1, 3, 4]:
-                        tensor_img = tensor_img.permute(2, 0, 1)
-                    elif tensor_img.ndim == 2:
-                        tensor_img = tensor_img.unsqueeze(0)
-                    observation[key] = tensor_img.to(device).unsqueeze(0)
-                elif key == "observation.images.side":
-                    img = numpy_observation["observation.images.side"]
-                    img = img.copy()  # 負のstride対策
-                    tensor_img = torch.from_numpy(img).to(torch.float32) / 255.0
-                    if tensor_img.ndim == 3 and tensor_img.shape[2] in [1, 3, 4]:
-                        tensor_img = tensor_img.permute(2, 0, 1)
-                    elif tensor_img.ndim == 2:
-                        tensor_img = tensor_img.unsqueeze(0)
-                    observation[key] = tensor_img.to(device).unsqueeze(0)
-                elif key == "observation.images.sound":
-                    img = numpy_observation["observation.images.sound"] # 画像データを取得
-                    img = img.copy()  # 負のstride対策でコピーを作成
-                    tensor_img = torch.from_numpy(img).to(torch.float32) / 255.0 # 0-1に正規化
-                    if tensor_img.ndim == 3 and tensor_img.shape[2] in [1, 3, 4]: # HWC形式でチャンネルが1, 3, 4のいずれか
-                        tensor_img = tensor_img.permute(2, 0, 1) # CHW形式に変換
-                    elif tensor_img.ndim == 2:
-                        tensor_img = tensor_img.unsqueeze(0) # (H, W) -> (1, H, W)に変換
-                    observation[key] = tensor_img.to(device).unsqueeze(0) # バッチ次元を追加
                 else:
-                    print(f"Warning: Unsupported input feature '{key}'. Skipping.")
+                    img = numpy_observation[key]
+                    img = img.copy()  # 負のstride対策
+                    tensor_img = torch.from_numpy(img).to(torch.float32) / 255.0
+                    if tensor_img.ndim == 3 and tensor_img.shape[2] in [1, 3, 4]:
+                        tensor_img = tensor_img.permute(2, 0, 1)
+                    elif tensor_img.ndim == 2:
+                        tensor_img = tensor_img.unsqueeze(0)
+                    observation[key] = tensor_img.to(device).unsqueeze(0)
             with torch.inference_mode():
                 action = policy.select_action(observation)
                 if isinstance(action, dict):
@@ -152,17 +121,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
             numpy_observation, reward, terminated, truncated, info = env.step(numpy_action)
             print(f"Step: {step}, Reward: {reward:.4f}, Terminated: {terminated}, Truncated: {truncated}")
             rewards.append(reward)
-            front_img_obs = numpy_observation.get("observation.images.front")
-            side_img_obs = numpy_observation.get("observation.images.side")
-            sound_img_obs = numpy_observation.get("observation.images.sound")
-            front_video_img = process_image_for_video(front_img_obs, observation_height, observation_width)
-            side_video_img = process_image_for_video(side_img_obs, observation_height, observation_width)
-            sound_video_img = process_image_for_video(sound_img_obs, observation_height, observation_width)
-            current_combined_frame = np.zeros((combined_video_h, combined_video_w, 3), dtype=np.uint8)
-            current_combined_frame[0:observation_height, 0:observation_width] = front_video_img
-            current_combined_frame[0:observation_height, observation_width:combined_video_w] = side_video_img
-            sound_start_w = (combined_video_w - observation_width) // 2
-            current_combined_frame[observation_height:combined_video_h, sound_start_w : sound_start_w + observation_width] = sound_video_img
+            current_combined_frame = combine_frames(numpy_observation, observation_height, observation_width)
             frames.append(current_combined_frame)
             done = terminated or truncated
             step += 1
@@ -217,14 +176,13 @@ def main(training_name, observation_height, observation_width, episode_num, show
 if __name__ == "__main__":
     # 評価したい学習済みモデルの名前を指定
     # outputs/train/<training_name>/checkpoints/<checkpoint_step>
-    training_name = "act-weighted_sound-ep100_2"
+    training_name = "act_sound-m3-fx-sx_1"
     checkpoint_step = "100000"
     main(
         training_name=training_name,
-        observation_height=480,
-        observation_width=640,
-        episode_num=50,
+        observation_height=224,
+        observation_width=224,
+        episode_num=1,
         show_viewer=False,
         checkpoint_step=checkpoint_step,
-        sim_device="cpu", # cuda or cpu シミュレーションを実行するデバイスを指定
     )
