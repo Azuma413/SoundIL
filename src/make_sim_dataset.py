@@ -76,7 +76,12 @@ def initialize_dataset(env: GenesisEnv) -> LeRobotDataset:
     features = {"action": {"dtype": "float32", "shape": (AGENT_DIM,), "names": joints_name}}
     for key, space in env.observation_space.spaces.items():
         if key == "observation.state":
-            features[key] = {"dtype": "float32", "shape": (8,), "names": joints_name}
+            states_name = [
+                "eef_pos_x", "eef_pos_y", "eef_pos_z",
+                "eef_quat_w", "eef_quat_x", "eef_quat_y", "eef_quat_z",
+                "grip_angle",
+            ]
+            features[key] = {"dtype": "float32", "shape": (8,), "names": states_name}
         elif key.startswith("observation.images"):
             # すべての画像は3チャンネル（sound0, sound1, specも含む）
             features[key] = {"dtype": "video", "shape": (height, width, 3), "names": ("height", "width", "channels")}
@@ -140,7 +145,7 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
 
 if __name__ == "__main__":
     # datasetを作成したいタスクを指定
-    task = "sound-m3-fx-sx" # "normal"
+    task = "sound-m3-fx-sx" # "sound-m3-fx-sx" "normal"
     stage_dict = {
         "hover": 80, # cubeの上に手を持っていく
         "stabilize": 30, # cubeの上で手を安定させる

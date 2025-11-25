@@ -119,7 +119,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
                     action_tensor = action
             numpy_action = action_tensor.squeeze(0).cpu().numpy()
             numpy_observation, reward, terminated, truncated, info = env.step(numpy_action)
-            print(f"Step: {step}, Reward: {reward:.4f}, Terminated: {terminated}, Truncated: {truncated}")
+            # print(f"Step: {step}, Reward: {reward:.4f}, Terminated: {terminated}, Truncated: {truncated}")
             rewards.append(reward)
             current_combined_frame = combine_frames(numpy_observation, observation_height, observation_width)
             frames.append(current_combined_frame)
@@ -176,7 +176,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
 if __name__ == "__main__":
     # 評価したい学習済みモデルの名前を指定
     # outputs/train/<training_name>/checkpoints/<checkpoint_step>
-    training_name = "act_sound-m3-fx-sx_1"
+    training_name = "act_sound-m3-fx-sx_0"
     checkpoint_step = "100000"
     main(
         training_name=training_name,

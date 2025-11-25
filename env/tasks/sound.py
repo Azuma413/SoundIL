@@ -50,7 +50,7 @@ class SoundTask(NormalTask):
         観測空間を拡張して、sound0、sound1、spec（use_spectrogramがTrueの場合）を追加
         """
         obs_space_dict = {
-            "observation.state": spaces.Box(low=-np.inf, high=np.inf, shape=(AGENT_DIM,), dtype=np.float32),
+            "observation.state": spaces.Box(low=-np.inf, high=np.inf, shape=(8,), dtype=np.float32),
             "observation.images.front": spaces.Box(
                 low=0, high=255,
                 shape=(self.observation_height, self.observation_width, 3),

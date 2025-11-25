@@ -52,7 +52,7 @@ class SoundConfig:
     noise_intensity: float = 0.0  # ノイズ強度（マイク信号に加算するノイズの強度）
     # Cubeの色
     same_color: bool = True
-    update_freq: int = 1 # 5 # update_freq回呼び出されるごとに情報を更新
+    update_freq: int = 5 # update_freq回呼び出されるごとに情報を更新
 
 class SoundCamera:
     """音響シミュレーションとSoundMap生成を行うカメラクラス"""

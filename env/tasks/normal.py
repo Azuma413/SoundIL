@@ -31,7 +31,7 @@ class NormalTask:
         if not gs._initialized:
             print("Genesis is not initialized, initializing now...")
             if self.device == "cuda":
-                gs.init(backend=gs.gpu, precision="32", debug=False, logging_level="INFO")
+                gs.init(backend=gs.gpu, precision="32", debug=False, logging_level="WARNING")
             elif self.device == "cpu":
                 gs.init(backend=gs.cpu, precision="32", debug=False, logging_level="WARNING")
             else:
