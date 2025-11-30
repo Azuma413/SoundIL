@@ -5,6 +5,12 @@ import torch
 from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
 from lerobot.policies.act.modeling_act import ACTPolicy
 from lerobot.policies.pi0.modeling_pi0 import PI0Policy
+from lerobot.policies.factory import make_pre_post_processors
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.utils.control_utils import predict_action
+from lerobot.datasets.utils import build_dataset_frame
+from lerobot.utils.constants import OBS_STR
+from lerobot.utils.utils import get_safe_torch_device
 import os
 import sys
 import time
@@ -73,18 +79,36 @@ def main(training_name, observation_height, observation_width, episode_num, show
     policy.to(device)
     policy.eval()
     task_name = training_name.split("_")[1]
+    dataset_name = f"{task_name}_{training_name.split('_')[-1]}"
     print(f"Detected task name: {task_name}")
+    # Load dataset to get statistics for normalization
+    dataset_path = Path(f"datasets/{dataset_name}")
+    dataset_path = dataset_path.resolve()
+    print(f"Loading dataset from: {dataset_path}")
+    dataset = LeRobotDataset(str(dataset_path))
+    
+    # Create preprocessor and postprocessor
+    print("Creating preprocessor and postprocessor...")
+    preprocessor, postprocessor = make_pre_post_processors(
+        policy_cfg=policy.config,
+        pretrained_path=str(pretrained_policy_path),
+        dataset_stats=dataset.meta.stats,
+    )
+    
     env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
     print("Policy Input Features:", policy.config.input_features)
     print("Environment Observation Space:", env.observation_space)
     print("Policy Output Features:", policy.config.output_features)
     print("Environment Action Space:", env.action_space)
     success_num = 0
+    all_actions = []  # 全エピソードのactionを保存
     combined_video_h = observation_height * 2
     combined_video_w = observation_width * 2
     for ep in range(episode_num):
         print(f"\n=== Episode {ep+1} ===")
         policy.reset()
+        preprocessor.reset()
+        postprocessor.reset()
         numpy_observation, _ = env.reset()
         rewards = []
         frames = []  # Stores combined frames
@@ -93,31 +117,49 @@ def main(training_name, observation_height, observation_width, episode_num, show
         step = 0
         done = False
         while not done:
-            observation = {}
-            for key in policy.config.input_features:
-                if key == "observation.state":
-                    data = numpy_observation[key]
-                    tensor_data = torch.from_numpy(data).to(torch.float32)
-                    observation[key] = tensor_data.to(device).unsqueeze(0)
+            # Convert observation keys to format expected by build_dataset_frame
+            # Environment returns keys like "observation.images.front"
+            # build_dataset_frame expects short keys like "front" for images
+            converted_obs = {}
+            for key, value in numpy_observation.items():
+                if key.startswith("observation.images."):
+                    # Extract short name (e.g., "front" from "observation.images.front")
+                    short_key = key.replace("observation.images.", "")
+                    # Make a copy to ensure contiguous memory layout (avoid negative stride issues)
+                    converted_obs[short_key] = value.copy() if isinstance(value, np.ndarray) else value
+                elif key == "observation.state":
+                    # For state, extract individual joint values
+                    # build_dataset_frame expects individual joint names as keys
+                    if "observation.state" in dataset.features:
+                        for i, name in enumerate(dataset.features["observation.state"]["names"]):
+                            converted_obs[name] = value[i]
                 else:
-                    img = numpy_observation[key]
-                    img = img.copy()  # 負のstride対策
-                    tensor_img = torch.from_numpy(img).to(torch.float32) / 255.0
-                    if tensor_img.ndim == 3 and tensor_img.shape[2] in [1, 3, 4]:
-                        tensor_img = tensor_img.permute(2, 0, 1)
-                    elif tensor_img.ndim == 2:
-                        tensor_img = tensor_img.unsqueeze(0)
-                    observation[key] = tensor_img.to(device).unsqueeze(0)
-            with torch.inference_mode():
-                action = policy.select_action(observation)
-                if isinstance(action, dict):
-                    action_tensor = action.get('action', None)
-                    if action_tensor is None:
-                        print("Error: Policy did not return 'action' key.")
-                        break
-                else:
-                    action_tensor = action
+                    converted_obs[key] = value.copy() if isinstance(value, np.ndarray) else value
+            
+            # Build observation frame in dataset format
+            observation_frame = build_dataset_frame(dataset.features, converted_obs, prefix=OBS_STR)
+            
+            # Use predict_action to apply preprocessor, policy, and postprocessor
+            action_dict = predict_action(
+                observation=observation_frame,
+                policy=policy,
+                device=get_safe_torch_device(policy.config.device),
+                preprocessor=preprocessor,
+                postprocessor=postprocessor,
+                use_amp=policy.config.use_amp,
+                task=task_name,
+                robot_type=None,
+            )
+            
+            # Extract action tensor from the returned dictionary
+            if isinstance(action_dict, dict) and 'action' in action_dict:
+                action_tensor = action_dict['action']
+            else:
+                action_tensor = action_dict
+            
+            # Convert to numpy for environment
             numpy_action = action_tensor.squeeze(0).cpu().numpy()
+            all_actions.append(numpy_action)  # actionを記録
             numpy_observation, reward, terminated, truncated, info = env.step(numpy_action)
             # print(f"Step: {step}, Reward: {reward:.4f}, Terminated: {terminated}, Truncated: {truncated}")
             rewards.append(reward)
@@ -169,14 +211,38 @@ def main(training_name, observation_height, observation_width, episode_num, show
     env.close()
     success_rate = (success_num / episode_num) * 100
     print(f"Success rate: {success_num}/{episode_num} ({success_rate:.2f}%)")
+    
+    # actionの統計情報を計算
+    action_stats = None
+    if all_actions:
+        all_actions_array = np.array(all_actions)  # shape: (total_steps, action_dim)
+        action_stats = {
+            'min': np.min(all_actions_array, axis=0),
+            'max': np.max(all_actions_array, axis=0),
+            'mean': np.mean(all_actions_array, axis=0),
+            'std': np.std(all_actions_array, axis=0)
+        }
+        print("\nAction Statistics:")
+        print(f"  Min:  {action_stats['min']}")
+        print(f"  Max:  {action_stats['max']}")
+        print(f"  Mean: {action_stats['mean']}")
+        print(f"  Std:  {action_stats['std']}")
+    
+    # success_rate.txtに書き込み
     success_rate_file = output_directory / "success_rate.txt"
     with open(success_rate_file, "w") as f:
         f.write(f"Success rate: {success_num}/{episode_num} ({success_rate:.2f}%)\n")
+        if action_stats is not None:
+            f.write(f"\nAction Statistics:\n")
+            f.write(f"  Min:  {action_stats['min']}\n")
+            f.write(f"  Max:  {action_stats['max']}\n")
+            f.write(f"  Mean: {action_stats['mean']}\n")
+            f.write(f"  Std:  {action_stats['std']}\n")
 
 if __name__ == "__main__":
     # 評価したい学習済みモデルの名前を指定
     # outputs/train/<training_name>/checkpoints/<checkpoint_step>
-    training_name = "act_sound-m3-fx-sx_0"
+    training_name = "act_normal-fix_0"
     checkpoint_step = "100000"
     main(
         training_name=training_name,

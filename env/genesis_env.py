@@ -86,11 +86,13 @@ class GenesisEnv(gym.Env):
         return self._env.get_task_description()
 
     def _make_env_task(self, sound_config=None):
-        if self.task == "normal":
+        if "normal" in self.task:
+            fix_color = True if "fix" in self.task else False
             env = NormalTask(
                 observation_height=self.observation_height,
                 observation_width=self.observation_width,
                 show_viewer=self.show_viewer,
+                fix_color=fix_color,
             )
         elif "sound" in self.task:
             use_feat = self.task.split("-")[2] == "fo"

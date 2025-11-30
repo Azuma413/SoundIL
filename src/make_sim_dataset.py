@@ -145,7 +145,7 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
 
 if __name__ == "__main__":
     # datasetを作成したいタスクを指定
-    task = "sound-m3-fx-sx" # "sound-m3-fx-sx" "normal"
+    task = "normal-fix" # "sound-m3-fx-sx" "normal"
     stage_dict = {
         "hover": 80, # cubeの上に手を持っていく
         "stabilize": 30, # cubeの上で手を安定させる

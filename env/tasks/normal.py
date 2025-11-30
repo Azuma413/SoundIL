@@ -15,9 +15,10 @@ joints_name = (
 AGENT_DIM = len(joints_name)
 
 class NormalTask:
-    def __init__(self, observation_height, observation_width, show_viewer=False, device="cuda", same_color=False):
+    def __init__(self, observation_height, observation_width, show_viewer=False, device="cuda", same_color=False, fix_color=False):
         self.device = device
         self.same_color = same_color
+        self.fix_color = fix_color
         self.show_viewer = show_viewer
         self.observation_height = observation_height
         self.observation_width = observation_width
@@ -112,7 +113,10 @@ class NormalTask:
         target.set_quat(quat_tensor)
 
     def reset(self):
-        self.color = random.choice(["red", "green", "blue"])
+        if self.fix_color:
+            self.color = "red"
+        else:
+            self.color = random.choice(["red", "green", "blue"])
         pos_tensor = torch.tensor([0.3, 0.0, 0.0], dtype=torch.float32, device=gs.device)
         quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
         self.box.set_pos(pos_tensor)
