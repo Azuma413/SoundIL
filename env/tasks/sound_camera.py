@@ -184,11 +184,11 @@ class SoundCamera:
         
         # Create a new buffer by concatenating new_chunk and the previous buffer (minus last n_samples)
         if n_samples >= self.required_length:
-             self.signal_buffer = new_chunk[:self.required_length][::-1] # Just take new chunk if it's too long? No, logic says prepend.
-             # If n_samples is huge, we just take the last required_length of it?
-             # Let's follow strictly: "先頭に音源を結合"
-             # If we prepend new data, index 0 is NEWEST.
-             pass
+            self.signal_buffer = new_chunk[:self.required_length][::-1] # Just take new chunk if it's too long? No, logic says prepend.
+            # If n_samples is huge, we just take the last required_length of it?
+            # Let's follow strictly: "先頭に音源を結合"
+            # If we prepend new data, index 0 is NEWEST.
+            pass
         
         # Efficient rolling
         self.signal_buffer = np.roll(self.signal_buffer, n_samples)

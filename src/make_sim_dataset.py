@@ -96,9 +96,9 @@ def expert_policy(env, stage, target_cube_name=None):
         grip = grip_open
     elif stage == "drop": # soundShake失敗時用：持ち上げた位置で離す
         if saved_cube_pos is not None:
-             target_pos = np.array([saved_cube_pos[0], saved_cube_pos[1], 0.18]) + offset
+            target_pos = np.array([saved_cube_pos[0], saved_cube_pos[1], 0.18]) + offset
         else:
-             target_pos = cube_pos + np.array([0.0, 0.0, 0.18]) + offset
+            target_pos = cube_pos + np.array([0.0, 0.0, 0.18]) + offset
         grip = grip_open
     else:
         raise ValueError(f"Unknown stage: {stage}")
