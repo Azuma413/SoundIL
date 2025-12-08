@@ -131,7 +131,7 @@ class SoundCamera:
         signal = np.array(sound.get_array_of_samples())
         # 正規化 (-1.0 ~ 1.0)
         if signal.dtype != np.float32:
-             signal = signal.astype(np.float32)
+            signal = signal.astype(np.float32)
         if np.abs(signal).max() > 0:
             signal = signal / np.abs(signal).max()
         self.audio_signal = signal
@@ -262,10 +262,10 @@ class SoundCamera:
         # 初回呼び出し時などはdtが大きくなりすぎる可能性があるのでクリップするか、
         # 30FPS想定で固定するか。ここでは実測値を使うが、上限を設ける。
         if last_time is None:
-             dt = 0.033 # Assume 30FPS for first frame
+            dt = 0.033 # Assume 30FPS for first frame
         else:
-             dt = self.prev_time - last_time
-             if dt > 0.1: dt = 0.1 # Cap at 100ms to avoid huge jumps
+            dt = self.prev_time - last_time
+            if dt > 0.1: dt = 0.1 # Cap at 100ms to avoid huge jumps
         
         self._update_state(dt, velocity)
 
@@ -274,7 +274,7 @@ class SoundCamera:
         # pyroomacoustics に渡す signal は [過去 ... 最新] の順であるべき
         
         signal_to_process = self.signal_buffer.copy()
-        
+        zero_flag = False
         if self.config.shake_mode:
             # マスク作成
             mask = np.zeros_like(signal_to_process)
@@ -290,15 +290,20 @@ class SoundCamera:
                 current_idx = end_idx
             
             signal_to_process *= mask
+            
+            # 完全に0行列の場合は微小なホワイトノイズを追加
+            if np.all(signal_to_process == 0):
+                signal_to_process += np.random.randn(*signal_to_process.shape) * 1e-5
+                zero_flag = True
 
         # pyroomacoustics用に時間順を正順に戻す ([過去 ... 最新])
         signal_for_simulation = signal_to_process[::-1]
         
         # キャッシュが存在し、更新不要な場合は古い画像を返す
         if not should_update and self.cached_sound_map0 is not None:
-             # ただし、signal_bufferは更新されているので、次にrenderが呼ばれたときは
-             # 最新のバッファを使う必要がある。
-             # ここでreturnすると描画は更新されないが、内部状態は更新済み。
+            # ただし、signal_bufferは更新されているので、次にrenderが呼ばれたときは
+            # 最新のバッファを使う必要がある。
+            # ここでreturnすると描画は更新されないが、内部状態は更新済み。
             return self.cached_sound_map0, self.cached_sound_map1, self.cached_spectrogram
         
         # 音源位置の取得
@@ -309,7 +314,7 @@ class SoundCamera:
         sound_pos += np.array([4.85, 5.0, 0.0])
         
         # シミュレーション実行 (signalを渡す)
-        mic_signals_list, music_results = self._simulate_all_arrays(sound_pos, signal_for_simulation)
+        mic_signals_list, music_results = self._simulate_all_arrays(sound_pos, signal_for_simulation, zero_flag)
         
         sound_maps = []
         for i in range(self.config.mic_array_num):
@@ -366,7 +371,8 @@ class SoundCamera:
     def _simulate_all_arrays(
         self,
         sound_pos: np.ndarray,
-        signal: np.ndarray
+        signal: np.ndarray,
+        zero_flag: bool = False
     ) -> Tuple[List[np.ndarray], List[pra.doa.MUSIC]]:
         """
         すべてのマイクアレイを1つの部屋でシミュレーション
@@ -393,16 +399,21 @@ class SoundCamera:
             start_idx = i * self.config.mics_per_array
             end_idx = (i + 1) * self.config.mics_per_array
             signals = room.mic_array.signals[start_idx:end_idx]
+            mean_signal = np.mean(signals)
             if self.config.noise_intensity > 0:
-                noise = np.random.randn(*signals.shape) * np.mean(signals) * self.config.noise_intensity
+                noise = np.random.randn(*signals.shape) * mean_signal * self.config.noise_intensity
                 signals = signals*(1.0 - self.config.noise_intensity) + noise
             mic_signals_list.append(signals)
+        if zero_flag:
+            doa_mic_signals_list = [np.zeros_like(signals) for signals in mic_signals_list]
+        else:
+            doa_mic_signals_list = mic_signals_list
         music_results = []
         for i in range(self.config.mic_array_num):
             stft_results = []
-            for j in range(mic_signals_list[i].shape[0]):
+            for j in range(doa_mic_signals_list[i].shape[0]):
                 f, t, Zxx = stft(
-                    mic_signals_list[i][j, :],
+                    doa_mic_signals_list[i][j, :],
                     fs=self.config.fs,
                     nperseg=self.config.nfft,
                     noverlap=self.config.nfft // 2
@@ -537,7 +548,7 @@ class SoundCamera:
         concatenated_spec = np.concatenate(all_amp_specs, axis=1)
         # F, T_total = concatenated_spec.shape
         # T_frame = all_amp_specs[0].shape[1]
-        model = NMF(n_components=n_components, init='nndsvd', random_state=0, max_iter=2000, tol=1e-3)
+        model = NMF(n_components=n_components, init='nndsvd', random_state=0, max_iter=1000, tol=1e-3)
         W = model.fit_transform(concatenated_spec)
         H = model.components_
         split_H = np.array_split(H, M, axis=1)
