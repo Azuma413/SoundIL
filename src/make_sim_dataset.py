@@ -217,9 +217,9 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
                 
                 if reward > 0:
                     save_flag = True
-        if not save_flag:
-            print(f"🚫 Skipping episode {ep+1}")
-            continue
+        # if not save_flag:
+        #     print(f"🚫 Skipping episode {ep+1}")
+        #     continue
         print(f"✅ Saving episode {ep+1}")
         ep += 1
         for i in range(len(obs_dict["action"])):

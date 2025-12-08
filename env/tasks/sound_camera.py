@@ -88,6 +88,15 @@ class SoundCamera:
         # 速度計算用
         self.prev_pos = None
         self.prev_time = None
+
+        # 信号バッファリング用
+        self.required_length = int(config.fs * config.processing_time)
+        self.signal_buffer = np.zeros(self.required_length, dtype=np.float32)
+        self.audio_cursor = 0
+        
+        # 速度履歴 (shake_mode用)
+        # (velocity, num_samples) のリスト
+        self.velocity_history = []
     
     def get_target_velocity(self) -> float:
         """ターゲットの速度を計算"""
@@ -120,7 +129,109 @@ class SoundCamera:
         sound = AudioSegment.from_file(audio_file_path, format=format)
         sound = sound.set_frame_rate(self.config.fs).set_channels(1)
         signal = np.array(sound.get_array_of_samples())
+        # 正規化 (-1.0 ~ 1.0)
+        if signal.dtype != np.float32:
+             signal = signal.astype(np.float32)
+        if np.abs(signal).max() > 0:
+            signal = signal / np.abs(signal).max()
         self.audio_signal = signal
+
+    def _get_audio_chunk(self, n_samples: int) -> np.ndarray:
+        """音声ファイルから指定サンプル数を取得（ループ再生）"""
+        if self.audio_signal is None:
+            return np.random.randn(n_samples).astype(np.float32)
+        
+        chunk = np.zeros(n_samples, dtype=np.float32)
+        total_len = len(self.audio_signal)
+        current_idx = 0
+        
+        while current_idx < n_samples:
+            remaining = n_samples - current_idx
+            available = total_len - self.audio_cursor
+            
+            take = min(remaining, available)
+            chunk[current_idx:current_idx+take] = self.audio_signal[self.audio_cursor:self.audio_cursor+take]
+            
+            self.audio_cursor = (self.audio_cursor + take) % total_len
+            current_idx += take
+            
+        return chunk
+
+    def _update_state(self, dt: float, velocity: float):
+        """状態更新（信号バッファと速度履歴）"""
+        # 経過時間分のサンプル数
+        n_samples = int(dt * self.config.fs)
+        if n_samples == 0:
+            return
+
+        # 1. 新しい音源チャンクを取得
+        new_chunk = self._get_audio_chunk(n_samples)
+        
+        # 2. バッファ更新: 末尾から削除し、先頭に追加 (時系列は index 0 が最新)
+        # original_signal logic: 
+        # required_lengthのゼロ配列を作る -> そこから経過時刻分を末尾から削除する
+        # -> 配列の先頭に音源を結合し，これをoriginal_signalとする
+        # -> 末尾からrequired_length分の配列をsignalとする
+        # This implies the buffer holds the "history" and we prepend new data.
+        # But for pyroomacoustics simulation, we usually want [oldest ... newest].
+        # However, the user requirement says:
+        # "配列の先頭に音源を結合し... 末尾からrequired_length分の配列をsignalとする"
+        # This suggests the buffer grows at the head.
+        # Let's maintain self.signal_buffer as the "original_signal" concept.
+        
+        # Shift buffer: remove from end (oldest), add to start (newest)
+        # Note: self.signal_buffer is initialized to required_length zeros.
+        
+        # Create a new buffer by concatenating new_chunk and the previous buffer (minus last n_samples)
+        if n_samples >= self.required_length:
+             self.signal_buffer = new_chunk[:self.required_length][::-1] # Just take new chunk if it's too long? No, logic says prepend.
+             # If n_samples is huge, we just take the last required_length of it?
+             # Let's follow strictly: "先頭に音源を結合"
+             # If we prepend new data, index 0 is NEWEST.
+             pass
+        
+        # Efficient rolling
+        self.signal_buffer = np.roll(self.signal_buffer, n_samples)
+        self.signal_buffer[:n_samples] = new_chunk[::-1] # Store new chunk in reverse so index 0 is newest sample?
+        # Wait, if we prepend "new_chunk" to "buffer", then buffer[0] is the start of new_chunk.
+        # If new_chunk is "sound that just happened", and we prepend it, then buffer grows to the left?
+        # Let's interpret "先頭に音源を結合" as "Prepend to the list".
+        # [New Chunk] + [Old Buffer]
+        # Then "末尾からrequired_length分の配列をsignalとする" -> Take the last N samples.
+        # This means the "Old Buffer" is kept, and "New Chunk" is added at the beginning?
+        # If we keep adding to the beginning and taking from the end, we are effectively shifting RIGHT.
+        # [New] [Old...] -> Take [Old...] ? That would mean we lose the new data if we take from end.
+        # User said: "required_lengthのゼロ配列を作る (A)"
+        # "そこから経過時刻分を末尾から削除する (B = A[:-n])"
+        # "配列の先頭に音源を結合し (C = concat(new, B))"
+        # "末尾からrequired_length分の配列をsignalとする (D = C[-req:])"
+        # If A is size N. Remove n from end -> size N-n. Prepend n -> size N.
+        # Take last N -> It is the whole array C.
+        # So effectively: Buffer = [New Data] + [Old Buffer[:-n]]
+        # This means index 0 is the NEWEST data.
+        
+        # Implementation:
+        # self.signal_buffer is size N.
+        # shift right by n_samples.
+        self.signal_buffer[n_samples:] = self.signal_buffer[:-n_samples]
+        self.signal_buffer[:n_samples] = new_chunk[::-1] # Store time-reversed new chunk?
+        # If new_chunk is [t_now-dt, ..., t_now], and we want index 0 to be t_now.
+        # Then we should store it as [t_now, ..., t_now-dt].
+        # So yes, reverse new_chunk.
+        
+        # 3. 速度履歴の更新
+        # Add (velocity, n_samples) to history
+        self.velocity_history.insert(0, (velocity, n_samples))
+        
+        # Trim history if it exceeds required_length
+        total_samples = 0
+        valid_history = []
+        for v, s in self.velocity_history:
+            if total_samples >= self.required_length:
+                break
+            valid_history.append((v, s))
+            total_samples += s
+        self.velocity_history = valid_history
     
     def _generate_default_mic_positions(self) -> List[List[float]]:
         """デフォルトのマイクロフォン位置を生成（10x10x3の部屋用）"""
@@ -144,30 +255,50 @@ class SoundCamera:
         should_update = (self.call_count % self.config.update_freq == 0)
         self.call_count += 1
         
-        # Shake modeの場合、速度をチェック
+        # 状態更新 (常に実行)
+        last_time = self.prev_time
+        velocity = self.get_target_velocity()
+        
+        # 初回呼び出し時などはdtが大きくなりすぎる可能性があるのでクリップするか、
+        # 30FPS想定で固定するか。ここでは実測値を使うが、上限を設ける。
+        if last_time is None:
+             dt = 0.033 # Assume 30FPS for first frame
+        else:
+             dt = self.prev_time - last_time
+             if dt > 0.1: dt = 0.1 # Cap at 100ms to avoid huge jumps
+        
+        self._update_state(dt, velocity)
+
+        # Shake modeの場合、速度履歴に基づいてマスクを作成
+        # self.signal_buffer は [最新 ... 過去] の順
+        # pyroomacoustics に渡す signal は [過去 ... 最新] の順であるべき
+        
+        signal_to_process = self.signal_buffer.copy()
+        
         if self.config.shake_mode:
-            velocity = self.get_target_velocity()
-            if velocity < self.config.velocity_threshold:
-                # 速度が閾値以下の場合は無音（ゼロ配列）を返す
-                num_channels = 3 if self.config.use_feature else self.config.mic_array_num
-                sound_map_image = np.zeros(
-                    (self.config.observation_height, self.config.observation_width, num_channels),
-                    dtype=np.uint8
-                )
-                # 3チャンネルに分割して返す
-                sound_map0 = self._split_channels(sound_map_image, 0, 3)
-                sound_map1 = self._split_channels(sound_map_image, 3, 6)
-                
-                spectrogram = None
-                if self.config.use_spectrogram:
-                    spectrogram = np.zeros(
-                        (self.config.observation_height, self.config.observation_width, 3),
-                        dtype=np.uint8
-                    )
-                return sound_map0, sound_map1, spectrogram
+            # マスク作成
+            mask = np.zeros_like(signal_to_process)
+            current_idx = 0
+            for v, s in self.velocity_history:
+                if current_idx >= len(mask):
+                    break
+                end_idx = min(current_idx + s, len(mask))
+                if v >= self.config.velocity_threshold:
+                    mask[current_idx:end_idx] = 1.0
+                else:
+                    mask[current_idx:end_idx] = 0.0
+                current_idx = end_idx
+            
+            signal_to_process *= mask
+
+        # pyroomacoustics用に時間順を正順に戻す ([過去 ... 最新])
+        signal_for_simulation = signal_to_process[::-1]
         
         # キャッシュが存在し、更新不要な場合は古い画像を返す
         if not should_update and self.cached_sound_map0 is not None:
+             # ただし、signal_bufferは更新されているので、次にrenderが呼ばれたときは
+             # 最新のバッファを使う必要がある。
+             # ここでreturnすると描画は更新されないが、内部状態は更新済み。
             return self.cached_sound_map0, self.cached_sound_map1, self.cached_spectrogram
         
         # 音源位置の取得
@@ -176,7 +307,10 @@ class SoundCamera:
             sound_pos = sound_pos.cpu().numpy()
         # genesisの座標系からpyroomacousticsの座標系へ変換
         sound_pos += np.array([4.85, 5.0, 0.0])
-        mic_signals_list, music_results = self._simulate_all_arrays(sound_pos)
+        
+        # シミュレーション実行 (signalを渡す)
+        mic_signals_list, music_results = self._simulate_all_arrays(sound_pos, signal_for_simulation)
+        
         sound_maps = []
         for i in range(self.config.mic_array_num):
             sound_map = self._generate_soundmap_from_doa(
@@ -192,7 +326,7 @@ class SoundCamera:
                 dtype=np.uint8
             )
             self.frames.append(sound_map_image)
-            return sound_map_image, None
+            return sound_map_image, None, None # Fixed return tuple size
         sound_map_array = np.array(sound_maps).transpose(1, 2, 0)
         # ガウシアンフィルタの適用
         if self.config.use_gaussian_filter:
@@ -231,7 +365,8 @@ class SoundCamera:
     
     def _simulate_all_arrays(
         self,
-        sound_pos: np.ndarray
+        sound_pos: np.ndarray,
+        signal: np.ndarray
     ) -> Tuple[List[np.ndarray], List[pra.doa.MUSIC]]:
         """
         すべてのマイクアレイを1つの部屋でシミュレーション
@@ -249,16 +384,8 @@ class SoundCamera:
                 self.config.mic_radius
             )
             room.add_microphone_array(mic_array_positions)
-        room.compute_rir()
-        required_length = int(self.config.fs * self.config.processing_time)
-        if self.audio_signal is not None:
-            signal = self.audio_signal.copy()
-            if len(signal) < required_length:
-                num_repeats = int(np.ceil(required_length / len(signal)))
-                signal = np.tile(signal, num_repeats)
-            signal = signal[:required_length]
-        else:
-            signal = np.random.randn(required_length)
+        
+        # 信号を設定
         room.sources[0].signal = signal
         room.simulate()
         mic_signals_list = []
