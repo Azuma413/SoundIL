@@ -15,8 +15,10 @@ class SoundTask(NormalTask):
         observation_width,
         show_viewer=False,
         device="cuda",
-        sound_config: SoundConfig = None
+        sound_config: SoundConfig = None,
+        task_type="sound" # "sound", "soundDiff", "soundShake"
     ):
+        self.task_type = task_type
         # sound_configがNoneの場合はデフォルト値を使用
         if sound_config is None:
             sound_config = SoundConfig()
@@ -24,13 +26,37 @@ class SoundTask(NormalTask):
         sound_config.observation_height = observation_height
         sound_config.observation_width = observation_width
         self.sound_config = sound_config
+        
+        # タスクタイプに応じた設定
+        num_cubes = 2 # default for sound and soundShake
+        use_two_boxes = False
+        same_color = True # default for sound and soundShake
+        
+        if task_type == "sound":
+            num_cubes = 2
+            same_color = True
+        elif task_type == "soundDiff":
+            num_cubes = 1
+            use_two_boxes = True
+            same_color = False # 色は関係ないが、1つなので何でも良い
+        elif task_type == "soundShake":
+            num_cubes = 2
+            same_color = True
+            self.sound_config.shake_mode = True
+            
+        self.target_cube_name = None
+        self.current_sound_type = "Unknown"
+        self.target_box = None
+
         # 親クラスの初期化（_build_sceneが呼ばれる）
         super().__init__(
             observation_height=observation_height,
             observation_width=observation_width,
             show_viewer=show_viewer,
             device=device,
-            same_color=sound_config.same_color,
+            same_color=same_color,
+            num_cubes=num_cubes,
+            use_two_boxes=use_two_boxes
         )
     
     def _build_scene(self, show_viewer):
@@ -40,6 +66,7 @@ class SoundTask(NormalTask):
         """
         super()._build_scene(show_viewer)
         # 初期ターゲットはcubeR（reset時に変更される）
+        # soundDiffの場合はcubeRのみ
         self.sound_cam = SoundCamera(
             target=self.cubeR,
             config=self.sound_config
@@ -89,14 +116,64 @@ class SoundTask(NormalTask):
         """
         # 親クラスのresetを呼び出し（self.colorが決定される）
         obs, info = super().reset()
-        # self.colorに応じてSoundCameraのターゲットを更新
-        if self.color == "red":
+        
+        if self.task_type == "sound":
+            # 2つのCubeのうち、どちらかが音源になる
+            # same_color=Trueなので、見た目は同じ
+            # colorはred, green, blueのいずれかがランダムに選ばれているが、
+            # num_cubes=2なので、cubeRとcubeGが存在する
+            # self.colorを使ってターゲットを決めるロジックは親クラスのresetでランダムに選ばれたcolorに依存する
+            # しかし、NormalTaskのresetではcolorはランダムに選ばれるが、same_color=Trueの場合、見た目は同じ
+            # ここでは、ランダムにターゲットを選ぶ
+            target_name = np.random.choice(["cubeR", "cubeG"])
+            if target_name == "cubeR":
+                self.sound_cam.target = self.cubeR
+                self.target_cube_name = "cubeR"
+            else:
+                self.sound_cam.target = self.cubeG
+                self.target_cube_name = "cubeG"
+                
+        elif self.task_type == "soundDiff":
+            # 音源はcubeR（1つしかない）
             self.sound_cam.target = self.cubeR
-        elif self.color == "blue":
-            self.sound_cam.target = self.cubeB
-        elif self.color == "green":
-            self.sound_cam.target = self.cubeG
+            self.target_cube_name = "cubeR"
+            
+            # 音の種類をランダムに選択（A or B）
+            sound_type = np.random.choice(["A", "B"])
+            if sound_type == "A":
+                # 音Aの設定（例: 1.wav）
+                self.sound_cam._load_audio_file("sounds/1.wav")
+                self.target_box = self.box_right # 音Aなら右の箱
+            else:
+                # 音Bの設定（例: 2.wav）
+                self.sound_cam._load_audio_file("sounds/2.wav")
+                self.target_box = self.box_left # 音Bなら左の箱
+            
+            # タスク記述更新用
+            self.current_sound_type = sound_type
+
+        elif self.task_type == "soundShake":
+            # 2つのCubeのうち、どちらかがターゲット
+            target_name = np.random.choice(["cubeR", "cubeG"])
+            if target_name == "cubeR":
+                self.sound_cam.target = self.cubeR
+                self.target_cube_name = "cubeR"
+            else:
+                self.sound_cam.target = self.cubeG
+                self.target_cube_name = "cubeG"
+        
         return obs, info
+    
+    def compute_reward(self, target=None):
+        if self.task_type == "soundDiff":
+            # 指定された箱に入っているかチェック
+            return super().compute_reward(target="cubeR", target_box=self.target_box)
+        else:
+            # sound, soundShakeの場合は、ターゲットのCubeが（任意の）箱に入っているかチェック
+            # NormalTask.compute_rewardはtargetを指定するとそのCubeが箱に入っているかチェックする
+            # target_box=Noneならどちらの箱でもOK（NormalTaskの修正による）
+            actual_target = target if target is not None else self.target_cube_name
+            return super().compute_reward(target=actual_target)
     
     def get_obs(self):
         """
@@ -128,7 +205,13 @@ class SoundTask(NormalTask):
         """
         タスクの説明を返す
         """
-        return f"Listen to the sound and pick up the {self.color} cube making sound, then place it in the box."
+        if self.task_type == "sound":
+            return "Listen to the sound and pick up the cube making sound, then place it in the box."
+        elif self.task_type == "soundDiff":
+            return f"Listen to the sound ({self.current_sound_type}). If sound A, place in right box. If sound B, place in left box."
+        elif self.task_type == "soundShake":
+            return "Shake the cubes. Pick up the one that makes sound and place it in the box."
+        return "Sound Task"
     
     def save_videos(self, file_name, fps=30):
         """

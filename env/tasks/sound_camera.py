@@ -9,6 +9,7 @@ from numpy.fft import rfft, irfft, rfftfreq
 from scipy.ndimage import gaussian_filter
 from pydub import AudioSegment
 from sklearn.decomposition import NMF
+import time
 
 @dataclass
 class SoundConfig:
@@ -53,6 +54,9 @@ class SoundConfig:
     # Cubeの色
     same_color: bool = True
     update_freq: int = 5 # update_freq回呼び出されるごとに情報を更新
+    # Shake mode
+    shake_mode: bool = False
+    velocity_threshold: float = 0.1
 
 class SoundCamera:
     """音響シミュレーションとSoundMap生成を行うカメラクラス"""
@@ -80,6 +84,35 @@ class SoundCamera:
         self.cached_sound_map0 = None
         self.cached_sound_map1 = None
         self.cached_spectrogram = None
+        
+        # 速度計算用
+        self.prev_pos = None
+        self.prev_time = None
+    
+    def get_target_velocity(self) -> float:
+        """ターゲットの速度を計算"""
+        current_pos = self.target.get_pos()
+        if isinstance(current_pos, torch.Tensor):
+            current_pos = current_pos.cpu().numpy()
+        
+        current_time = time.time()
+        
+        if self.prev_pos is None:
+            self.prev_pos = current_pos
+            self.prev_time = current_time
+            return 0.0
+        
+        dt = current_time - self.prev_time
+        if dt == 0:
+            return 0.0
+            
+        dist = np.linalg.norm(current_pos - self.prev_pos)
+        velocity = dist / dt
+        
+        self.prev_pos = current_pos
+        self.prev_time = current_time
+        
+        return velocity
     
     def _load_audio_file(self, audio_file_path: str):
         """音声ファイルを読み込む（WAV、MP3など）"""
@@ -110,6 +143,28 @@ class SoundCamera:
         # 更新頻度のチェック
         should_update = (self.call_count % self.config.update_freq == 0)
         self.call_count += 1
+        
+        # Shake modeの場合、速度をチェック
+        if self.config.shake_mode:
+            velocity = self.get_target_velocity()
+            if velocity < self.config.velocity_threshold:
+                # 速度が閾値以下の場合は無音（ゼロ配列）を返す
+                num_channels = 3 if self.config.use_feature else self.config.mic_array_num
+                sound_map_image = np.zeros(
+                    (self.config.observation_height, self.config.observation_width, num_channels),
+                    dtype=np.uint8
+                )
+                # 3チャンネルに分割して返す
+                sound_map0 = self._split_channels(sound_map_image, 0, 3)
+                sound_map1 = self._split_channels(sound_map_image, 3, 6)
+                
+                spectrogram = None
+                if self.config.use_spectrogram:
+                    spectrogram = np.zeros(
+                        (self.config.observation_height, self.config.observation_width, 3),
+                        dtype=np.uint8
+                    )
+                return sound_map0, sound_map1, spectrogram
         
         # キャッシュが存在し、更新不要な場合は古い画像を返す
         if not should_update and self.cached_sound_map0 is not None:

@@ -242,7 +242,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
 if __name__ == "__main__":
     # 評価したい学習済みモデルの名前を指定
     # outputs/train/<training_name>/checkpoints/<checkpoint_step>
-    training_name = "act_normal-fix_0"
+    training_name = "act_soundDiff-m3-fo-so_0"
     checkpoint_step = "100000"
     main(
         training_name=training_name,

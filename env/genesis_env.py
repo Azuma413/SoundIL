@@ -95,9 +95,21 @@ class GenesisEnv(gym.Env):
                 fix_color=fix_color,
             )
         elif "sound" in self.task:
-            use_feat = self.task.split("-")[2] == "fo"
-            use_spec = self.task.split("-")[3] == "so"
-            mic_num = 3 if use_feat else int(self.task.split("-")[1][1])
+            # task format: "sound-m3-fo-so" or "soundDiff-m3-fo-so" or "soundShake-m3-fo-so"
+            # default: "sound" (implies sound-m3-fo-so if not specified, but let's handle split carefully)
+            parts = self.task.split("-")
+            task_type = parts[0] # "sound", "soundDiff", "soundShake"
+            
+            if len(parts) >= 4:
+                use_feat = parts[2] == "fo"
+                use_spec = parts[3] == "so"
+                mic_num = 3 if use_feat else int(parts[1][1])
+            else:
+                # Default config if not specified in string
+                use_feat = False
+                use_spec = False
+                mic_num = 6 # Default mic num
+            
             if sound_config is None:
                 sound_config = SoundConfig(
                     mic_array_num=mic_num,
@@ -110,6 +122,7 @@ class GenesisEnv(gym.Env):
                 observation_width=self.observation_width,
                 show_viewer=self.show_viewer,
                 sound_config=sound_config,
+                task_type=task_type
             )
         else:
             raise NotImplementedError(f"Task {self.task} is not implemented.")

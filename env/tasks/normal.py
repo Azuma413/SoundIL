@@ -15,10 +15,12 @@ joints_name = (
 AGENT_DIM = len(joints_name)
 
 class NormalTask:
-    def __init__(self, observation_height, observation_width, show_viewer=False, device="cuda", same_color=False, fix_color=False):
+    def __init__(self, observation_height, observation_width, show_viewer=False, device="cuda", same_color=False, fix_color=False, num_cubes=3, use_two_boxes=False):
         self.device = device
         self.same_color = same_color
         self.fix_color = fix_color
+        self.num_cubes = num_cubes
+        self.use_two_boxes = use_two_boxes
         self.show_viewer = show_viewer
         self.observation_height = observation_height
         self.observation_width = observation_width
@@ -58,25 +60,41 @@ class NormalTask:
             surface=gs.surfaces.Plastic(diffuse_texture=gs.textures.ImageTexture(image_path="images/wood.jpg"))
         )
         self.so_arm = self.scene.add_entity(gs.morphs.MJCF(file="URDF/so101/so101_new_calib.xml"))
-        self.cubeR = self.scene.add_entity(
-            gs.morphs.Box(size=(0.03, 0.03, 0.03), pos=(0.45, 0.0, 0.02)),
-            material=gs.materials.Rigid(rho=50, friction=1.5, coup_friction=1.0, coup_softness=0.001),
-            surface=gs.surfaces.Plastic(color=(0.7, 0.3, 0.3)) if not self.same_color else gs.surfaces.Plastic(color=(0.3, 0.7, 0.3)),
-        )
-        self.cubeG = self.scene.add_entity(
-            gs.morphs.Box(size=(0.03, 0.03, 0.03), pos=(0.30, 0.0, 0.02)),
-            material=gs.materials.Rigid(rho=50, friction=1.5, coup_friction=1.0, coup_softness=0.001),
-            surface=gs.surfaces.Plastic(color=(0.3, 0.7, 0.3))
-        )
-        self.cubeB = self.scene.add_entity(
-            gs.morphs.Box(size=(0.03, 0.03, 0.03), pos=(0.15, 0.0, 0.02)),
-            material=gs.materials.Rigid(rho=50, friction=1.5, coup_friction=1.0, coup_softness=0.001),
-            surface=gs.surfaces.Plastic(color=(0.3, 0.3, 0.7)) if not self.same_color else gs.surfaces.Plastic(color=(0.3, 0.7, 0.3)),
-        )
-        self.box = self.scene.add_entity(
-            gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.3, 0.0, 0.0), scale=self.box_scale),
-            surface=gs.surfaces.Plastic(color=(0.8, 0.8, 0.8))
-        )
+        if self.num_cubes >= 1:
+            self.cubeR = self.scene.add_entity(
+                gs.morphs.Box(size=(0.03, 0.03, 0.03), pos=(0.45, 0.0, 0.02)),
+                material=gs.materials.Rigid(rho=50, friction=1.5, coup_friction=1.0, coup_softness=0.001),
+                surface=gs.surfaces.Plastic(color=(0.7, 0.3, 0.3)) if not self.same_color else gs.surfaces.Plastic(color=(0.3, 0.7, 0.3)),
+            )
+        if self.num_cubes >= 2:
+            self.cubeG = self.scene.add_entity(
+                gs.morphs.Box(size=(0.03, 0.03, 0.03), pos=(0.30, 0.0, 0.02)),
+                material=gs.materials.Rigid(rho=50, friction=1.5, coup_friction=1.0, coup_softness=0.001),
+                surface=gs.surfaces.Plastic(color=(0.3, 0.7, 0.3))
+            )
+        if self.num_cubes >= 3:
+            self.cubeB = self.scene.add_entity(
+                gs.morphs.Box(size=(0.03, 0.03, 0.03), pos=(0.15, 0.0, 0.02)),
+                material=gs.materials.Rigid(rho=50, friction=1.5, coup_friction=1.0, coup_softness=0.001),
+                surface=gs.surfaces.Plastic(color=(0.3, 0.3, 0.7)) if not self.same_color else gs.surfaces.Plastic(color=(0.3, 0.7, 0.3)),
+            )
+        
+        if self.use_two_boxes:
+            self.box_left = self.scene.add_entity(
+                gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.3, 0.15, 0.0), scale=self.box_scale),
+                surface=gs.surfaces.Plastic(color=(0.8, 0.8, 0.8))
+            )
+            self.box_right = self.scene.add_entity(
+                gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.3, -0.15, 0.0), scale=self.box_scale),
+                surface=gs.surfaces.Plastic(color=(0.8, 0.8, 0.8))
+            )
+            # 互換性のためにself.boxも定義しておく（デフォルトは左にしておくが、タスクによって使い分ける）
+            self.box = self.box_left 
+        else:
+            self.box = self.scene.add_entity(
+                gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.3, 0.0, 0.0), scale=self.box_scale),
+                surface=gs.surfaces.Plastic(color=(0.8, 0.8, 0.8))
+            )
         self.front_cam = self.scene.add_camera(
             res=(self.observation_width, self.observation_height),
             pos=(1.2, 0.0, 0.4),
@@ -117,25 +135,40 @@ class NormalTask:
             self.color = "red"
         else:
             self.color = random.choice(["red", "green", "blue"])
-        pos_tensor = torch.tensor([0.3, 0.0, 0.0], dtype=torch.float32, device=gs.device)
-        quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
-        self.box.set_pos(pos_tensor)
-        self.box.set_quat(quat_tensor)
-        # CubeRの位置をランダムに設定
-        self.set_random_state(self.cubeR, (0.15, 0.3), (-0.2, 0.2), 0.02) # 1回は必ず呼び出す
-        while self.compute_reward(target="cubeR") == 1.0:
-            print("CubeR is in the box, resetting position...")
+        if self.use_two_boxes:
+            pos_tensor_l = torch.tensor([0.3, 0.15, 0.0], dtype=torch.float32, device=gs.device)
+            pos_tensor_r = torch.tensor([0.3, -0.15, 0.0], dtype=torch.float32, device=gs.device)
+            quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
+            self.box_left.set_pos(pos_tensor_l)
+            self.box_left.set_quat(quat_tensor)
+            self.box_right.set_pos(pos_tensor_r)
+            self.box_right.set_quat(quat_tensor)
+        else:
+            pos_tensor = torch.tensor([0.3, 0.0, 0.0], dtype=torch.float32, device=gs.device)
+            quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
+            self.box.set_pos(pos_tensor)
+            self.box.set_quat(quat_tensor)
+        
+        # CubeR
+        if self.num_cubes >= 1:
             self.set_random_state(self.cubeR, (0.15, 0.3), (-0.2, 0.2), 0.02)
-        # CubeGの位置をランダムに設定
-        self.set_random_state(self.cubeG, (0.15, 0.3), (-0.2, 0.2), 0.02)
-        while self.compute_reward(target="cubeG") == 1.0:
-            print("CubeG is in the box, resetting position...")
+            while self.compute_reward(target="cubeR") == 1.0:
+                print("CubeR is in the box, resetting position...")
+                self.set_random_state(self.cubeR, (0.15, 0.3), (-0.2, 0.2), 0.02)
+        
+        # CubeG
+        if self.num_cubes >= 2:
             self.set_random_state(self.cubeG, (0.15, 0.3), (-0.2, 0.2), 0.02)
-        # CubeBの位置をランダムに設定
-        self.set_random_state(self.cubeB, (0.15, 0.3), (-0.2, 0.2), 0.02)
-        while self.compute_reward(target="cubeB") == 1.0:
-            print("CubeB is in the box, resetting position...")
+            while self.compute_reward(target="cubeG") == 1.0:
+                print("CubeG is in the box, resetting position...")
+                self.set_random_state(self.cubeG, (0.15, 0.3), (-0.2, 0.2), 0.02)
+        
+        # CubeB
+        if self.num_cubes >= 3:
             self.set_random_state(self.cubeB, (0.15, 0.3), (-0.2, 0.2), 0.02)
+            while self.compute_reward(target="cubeB") == 1.0:
+                print("CubeB is in the box, resetting position...")
+                self.set_random_state(self.cubeB, (0.15, 0.3), (-0.2, 0.2), 0.02)
         qpos = np.array([0.0, -np.pi/2, np.pi/2, 1.0, 0.0, 0.04])
         qpos_tensor = torch.tensor(qpos, dtype=torch.float32, device=gs.device)
         self.so_arm.set_dofs_kp(
@@ -176,7 +209,7 @@ class NormalTask:
         info = {}
         return obs, reward, terminated, truncated, info
 
-    def compute_reward(self, target=None):
+    def compute_reward(self, target=None, target_box=None):
         # CubeがBoxの中にあるかどうかを判定
         if target is not None:
             if target == "cubeR":
@@ -196,7 +229,28 @@ class NormalTask:
                 pos = self.cubeG.get_pos().cpu().numpy()
             else:
                 raise ValueError(f"Invalid color: {self.color}. Choose from 'red', 'blue', or 'green'.")
-        box_pos = self.box.get_pos().cpu().numpy()
+        
+        if target_box is not None:
+            box_pos = target_box.get_pos().cpu().numpy()
+        elif self.use_two_boxes:
+            # デフォルトではどちらかの箱に入っていればOKとする（soundDiffでオーバーライド可能）
+            box_pos_l = self.box_left.get_pos().cpu().numpy()
+            box_pos_r = self.box_right.get_pos().cpu().numpy()
+            box_size = np.array([0.1, 0.1, 0.05])*self.box_scale
+            in_left = (
+                (box_pos_l[0] - box_size[0] / 2 <= pos[0] <= box_pos_l[0] + box_size[0] / 2) and
+                (box_pos_l[1] - box_size[1] / 2 <= pos[1] <= box_pos_l[1] + box_size[1] / 2) and
+                (box_pos_l[2] <= pos[2] <= box_pos_l[2] + box_size[2])
+            )
+            in_right = (
+                (box_pos_r[0] - box_size[0] / 2 <= pos[0] <= box_pos_r[0] + box_size[0] / 2) and
+                (box_pos_r[1] - box_size[1] / 2 <= pos[1] <= box_pos_r[1] + box_size[1] / 2) and
+                (box_pos_r[2] <= pos[2] <= box_pos_r[2] + box_size[2])
+            )
+            return 1.0 if (in_left or in_right) else 0.0
+        else:
+            box_pos = self.box.get_pos().cpu().numpy()
+        
         box_size = np.array([0.1, 0.1, 0.05])*self.box_scale  # Boxのサイズを取得
         cube_in_box = (
             (box_pos[0] - box_size[0] / 2 <= pos[0] <= box_pos[0] + box_size[0] / 2) and
