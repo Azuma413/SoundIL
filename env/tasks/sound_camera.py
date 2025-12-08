@@ -56,7 +56,7 @@ class SoundConfig:
     update_freq: int = 5 # update_freq回呼び出されるごとに情報を更新
     # Shake mode
     shake_mode: bool = False
-    velocity_threshold: float = 0.1
+    velocity_threshold: float = 0.01
 
 class SoundCamera:
     """音響シミュレーションとSoundMap生成を行うカメラクラス"""
