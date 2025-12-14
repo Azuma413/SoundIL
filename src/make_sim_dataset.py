@@ -231,26 +231,41 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
             dataset.add_frame(obs)
         dataset.save_episode()
     env.close()
-
 if __name__ == "__main__":
     # datasetを作成したいタスクを指定
-    task = "soundShake-m3-fx-so" # "sound-m3-fx-sx" "normal"
-    stage_dict = {
-        "hover": 80, # cubeの上に手を持っていく
-        "stabilize": 30, # cubeの上で手を安定させる
-        "grasp": 70, # cubeを掴む
-        "lift": 40, # cubeを持ち上げる
-        "to_box": 40, # cubeを箱の上に持っていく
-        "stabilize_box": 10, # cubeを箱の上で安定させる
-        "release": 100, # cubeを離す
-    }
-    # sound_config = SoundConfig()
-    sound_config = None # Noneならタスクごとのデフォルト値が使われる．
-    main(episode_num=1, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
+    # task = "soundShake-m3-fx-so" # "sound-m3-fx-sx" "normal"
+    # 新フォーマット例: soundShake-m4-f6-s2-p4
+    
+    task_candidates = [
+        "soundShake-m4-f30-s2-p0",
+        # "normal",
+        # "sound-m3-f5-s1-p0" # 旧フォーマットテスト用に対応する場合は残すが、新フォーマット推奨
+    ]
+    
+    for task in task_candidates:
+        stage_dict = {
+            "hover": 80, # cubeの上に手を持っていく
+            "stabilize": 30, # cubeの上で手を安定させる
+            "grasp": 70, # cubeを掴む
+            "lift": 40, # cubeを持ち上げる
+            "to_box": 40, # cubeを箱の上に持っていく
+            "stabilize_box": 10, # cubeを箱の上で安定させる
+            "release": 100 # cubeを離す
+        }
+        
+        # GenesisEnv内で解析されるため、sound_configはNoneで渡す
+        sound_config = None 
+        
+        main(episode_num=1, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
+
 
 # normal: 音は関係なく，赤，青，緑のCubeから指定された色のCubeを箱に入れるタスク
 # normal-fix: 音は関係なく，赤色のCubeを箱に入れるタスク
 # sound: 2つの見た目が同じスピーカのうち，音が鳴っている方をピックして箱に入れるタスク
 # soundDiff: 1つのスピーカについて，音Aが鳴っている場合は右の箱，音Bが鳴っている場合は左の箱に入れるタスク
 # soundShake: 2つの見た目が同じスピーカについて，移動させた際に音が鳴る方を箱の中に入れるタスク
-# sound-m3-fo-sx: mはマイクロフォンアレイの数, fは特徴量マップを使うかどうか，sはスペクトログラムを使うかどうか
+
+# m: マイクロフォンアレイ数 3-6
+# f: 更新頻度 Hz
+# s: 0-音情報なし 1-音環境マップ 2-音環境マップ+スペクトログラム
+# p: 0-そのまま 1-ガウシアンフィルタ 2-時間平滑 3-ガウシアン+時間平滑 4-特徴量変換

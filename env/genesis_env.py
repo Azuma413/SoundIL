@@ -1,5 +1,6 @@
 import gymnasium as gym
 import warnings
+import re # Added import
 from env.tasks.normal import NormalTask
 from env.tasks.sound import SoundTask
 from env.tasks.sound_camera import SoundConfig
@@ -95,28 +96,64 @@ class GenesisEnv(gym.Env):
                 fix_color=fix_color,
             )
         elif "sound" in self.task:
-            # task format: "sound-m3-fo-so" or "soundDiff-m3-fo-so" or "soundShake-m3-fo-so"
-            # default: "sound" (implies sound-m3-fo-so if not specified, but let's handle split carefully)
+            # task format example: "soundShake-m4-f6-s2-p4"
             parts = self.task.split("-")
             task_type = parts[0] # "sound", "soundDiff", "soundShake"
             
-            if len(parts) >= 4:
-                use_feat = parts[2] == "fo"
-                use_spec = parts[3] == "so"
-                mic_num = 3 if use_feat else int(parts[1][1])
-            else:
-                # Default config if not specified in string
-                use_feat = False
-                use_spec = False
-                mic_num = 6 # Default mic num
-            
             if sound_config is None:
-                sound_config = SoundConfig(
-                    mic_array_num=mic_num,
-                    use_spectrogram=use_spec,
-                    use_feature=use_feat,
-                    audio_file_path="sounds/1.wav", # None
-                )
+                # 新しいフォーマットの解析
+                # Format: ...-m(\d+)-f(\d+)-s(\d+)-p(\d+)
+                pattern = r"-m(\d+)-f(\d+)-s(\d+)-p(\d+)"
+                match = re.search(pattern, self.task)
+                
+                if match:
+                    m, f, s, p = map(int, match.groups())
+                    
+                    # m: mic_array_num
+                    mic_array_num = m
+                    
+                    # f: update_freq (Hz) -> SoundConfig.update_freq (Interval frames)
+                    # Base FPS = 30
+                    update_freq = max(1, int(30 / f))
+                    
+                    # s: sound info
+                    use_spectrogram = False
+                    if s == 0:
+                        mic_array_num = 0 # 音情報なし
+                    elif s == 1:
+                        use_spectrogram = False
+                    elif s == 2:
+                        use_spectrogram = True
+                        
+                    # p: processing
+                    use_gaussian_filter = False
+                    use_temporal_smoothing = False
+                    use_feature = False
+                    
+                    if p == 1:
+                        use_gaussian_filter = True
+                    elif p == 2:
+                        use_temporal_smoothing = True
+                    elif p == 3:
+                        use_gaussian_filter = True
+                        use_temporal_smoothing = True
+                    elif p == 4:
+                        use_feature = True
+                        
+                    sound_config = SoundConfig(
+                        mic_array_num=mic_array_num,
+                        update_freq=update_freq,
+                        use_spectrogram=use_spectrogram,
+                        use_gaussian_filter=use_gaussian_filter,
+                        use_temporal_smoothing=use_temporal_smoothing,
+                        use_feature=use_feature,
+                        audio_file_path="sounds/1.wav" # デフォルト
+                    )
+                    # print(f"Parsed SoundConfig from {self.task} (new format): {sound_config}")
+
+                else:
+                    raise ValueError(f"Invalid task format: {self.task}")
+
             env = SoundTask(
                 observation_height=self.observation_height,
                 observation_width=self.observation_width,

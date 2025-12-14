@@ -310,28 +310,33 @@ class SoundCamera:
         sound_pos = self.target.get_pos()
         if isinstance(sound_pos, torch.Tensor):
             sound_pos = sound_pos.cpu().numpy()
-        # genesisの座標系からpyroomacousticsの座標系へ変換
+        # Genesisの座標系からpyroomacousticsの座標系へ変換
         sound_pos += np.array([4.85, 5.0, 0.0])
         
-        # シミュレーション実行 (signalを渡す)
-        mic_signals_list, music_results = self._simulate_all_arrays(sound_pos, signal_for_simulation, zero_flag)
-        
         sound_maps = []
-        for i in range(self.config.mic_array_num):
-            sound_map = self._generate_soundmap_from_doa(
-                music_results[i],
-                self.mic_positions[i]
-            )
-            sound_maps.append(sound_map)
+        mic_signals_list = []
+        music_results = []
+        
+        if self.config.mic_array_num > 0:
+            # シミュレーション実行 (signalを渡す)
+            mic_signals_list, music_results = self._simulate_all_arrays(sound_pos, signal_for_simulation, zero_flag)
+            
+            for i in range(self.config.mic_array_num):
+                sound_map = self._generate_soundmap_from_doa(
+                    music_results[i],
+                    self.mic_positions[i]
+                )
+                sound_maps.append(sound_map)
         if not sound_maps:
-            print("Warning: All sound simulations failed. Returning zero array.")
-            num_channels = 3 if self.config.use_feature else self.config.mic_array_num
+            print("Warning: All sound simulations failed or mic_array_num=0. Returning zero array.")
+            # 常に3チャンネルのゼロ画像を2つ返す
             sound_map_image = np.zeros(
-                (self.config.observation_height, self.config.observation_width, num_channels),
+                (self.config.observation_height, self.config.observation_width, 3),
                 dtype=np.uint8
             )
             self.frames.append(sound_map_image)
-            return sound_map_image, None, None # Fixed return tuple size
+            # sound_map0, sound_map1, spectrogram
+            return sound_map_image, sound_map_image, None 
         sound_map_array = np.array(sound_maps).transpose(1, 2, 0)
         # ガウシアンフィルタの適用
         if self.config.use_gaussian_filter:
