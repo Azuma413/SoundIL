@@ -390,3 +390,5 @@ if __name__ == "__main__":
     processor = DatasetProcessor(args.input, args.target)
     out_path = processor.process()
     print(f"Dataset processing complete. Saved to {out_path}")
+
+# uv run src/process_dataset.py --input datasets/sound-m3-f30-s2-p0_0 --target sound-m3-f15-s2-p0
