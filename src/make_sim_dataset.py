@@ -150,10 +150,6 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
             # reset後の初期観測を取得
             current_obs = env.get_obs()
             
-            # soundShakeの場合は特別なロジック
-            current_stage_dict = stage_dict.copy()
-            target_cube_name_override = None
-            
             # ステージリストを作成
             stage_sequence = []
             
@@ -204,9 +200,9 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
                     
                     if reward > 0:
                         save_flag = True
-            # if not save_flag:
-            #     print(f"🚫 Skipping episode {ep+1}")
-            #     continue
+            if not save_flag:
+                print(f"🚫 Skipping episode {ep+1}")
+                continue
             print(f"✅ Saving episode {ep+1}")
             ep += 1
             for i in range(len(obs_dict["action"])):
@@ -230,9 +226,8 @@ if __name__ == "__main__":
     # 新フォーマット例: soundShake-m4-f6-s2-p4
     
     task_candidates = [
-        # "sound-m3-f30-s2-p0",
-        "normal",
-        # "sound-m3-f5-s1-p0" # 旧フォーマットテスト用に対応する場合は残すが、新フォーマット推奨
+        "sound-m3-f30-s2-p0",
+        # "normal",
     ]
     
     for task in task_candidates:

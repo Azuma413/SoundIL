@@ -52,8 +52,8 @@ class NormalTask:
             sim_options=gs.options.SimOptions(dt=0.01),
             rigid_options=gs.options.RigidOptions(
                 box_box_detection=True,
-                noslip_iterations=5,
-                constraint_timeconst=0.001,
+                # noslip_iterations=5,
+                # constraint_timeconst=0.001,
             ),
             show_viewer=show_viewer,
         )
@@ -174,10 +174,10 @@ class NormalTask:
         qpos = np.array([0.0, -0.4, 0.0, -2.2, 0.0, 2.0, 0.8, 0.04, 0.04])
         qpos_tensor = torch.tensor(qpos, dtype=torch.float32, device=gs.device)
         self.franka.set_dofs_kp(
-            np.array([4500, 4500, 3500, 3500, 2000, 2000, 2000, 100, 100]),
+            np.array([3000, 2500, 2000, 2000, 1500, 1500, 1500, 100, 100]),
         )
         self.franka.set_dofs_kv(
-            np.array([450, 450, 350, 350, 200, 200, 200, 10, 10]),
+            np.array([600, 600, 500, 500, 400, 400, 400, 20, 20]),
         )
         self.franka.set_dofs_force_range(
             np.array([-87, -87, -87, -87, -12, -12, -12, -100, -100]),
