@@ -150,86 +150,93 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
     dataset = initialize_dataset(env)
     ep = 0
     while ep < episode_num:
-        print(f"\n🎬 Starting episode {ep+1}")
-        env.reset()
-        obs_dict = {"action": []}
-        for key in env.observation_space.spaces.keys():
-            obs_dict[key] = []
-        save_flag = False
-        
-        # reset後の初期観測を取得
-        current_obs = env.get_obs()
-        
-        # reset後の初期観測を取得
-        current_obs = env.get_obs()
-        
-        # soundShakeの場合は特別なロジック
-        current_stage_dict = stage_dict.copy()
-        target_cube_name_override = None
-        
-        # ステージリストを作成
-        stage_sequence = []
-        
-        if "soundShake" in task:
-            correct_cube = env._env.target_cube_name # "cubeR" or "cubeG"
-            other_cube = "cubeG" if correct_cube == "cubeR" else "cubeR"
+        try:
+            print(f"\n🎬 Starting episode {ep+1}")
+            env.reset()
+            obs_dict = {"action": []}
+            for key in env.observation_space.spaces.keys():
+                obs_dict[key] = []
+            save_flag = False
             
-            # 50%の確率で間違ったCubeを先に掴む
-            if np.random.rand() < 0.5:
-                # 間違い -> 正解
-                # 間違いパート
-                stage_sequence.append(("hover", stage_dict["hover"], other_cube))
-                stage_sequence.append(("stabilize", stage_dict["stabilize"], other_cube))
-                stage_sequence.append(("grasp", stage_dict["grasp"], other_cube))
-                stage_sequence.append(("lift", stage_dict["lift"], other_cube))
-                stage_sequence.append(("drop", 30, other_cube)) # 持ち上げて落とす
+            # reset後の初期観測を取得
+            current_obs = env.get_obs()
+            
+            # reset後の初期観測を取得
+            current_obs = env.get_obs()
+            
+            # soundShakeの場合は特別なロジック
+            current_stage_dict = stage_dict.copy()
+            target_cube_name_override = None
+            
+            # ステージリストを作成
+            stage_sequence = []
+            
+            if "soundShake" in task:
+                correct_cube = env._env.target_cube_name # "cubeR" or "cubeG"
+                other_cube = "cubeG" if correct_cube == "cubeR" else "cubeR"
                 
-                # 正解パート
-                stage_sequence.append(("hover", stage_dict["hover"], correct_cube))
-                stage_sequence.append(("stabilize", stage_dict["stabilize"], correct_cube))
-                stage_sequence.append(("grasp", stage_dict["grasp"], correct_cube))
-                stage_sequence.append(("lift", stage_dict["lift"], correct_cube))
-                stage_sequence.append(("to_box", stage_dict["to_box"], correct_cube))
-                stage_sequence.append(("stabilize_box", stage_dict["stabilize_box"], correct_cube))
-                stage_sequence.append(("release", stage_dict["release"], correct_cube))
+                # 50%の確率で間違ったCubeを先に掴む
+                if np.random.rand() < 0.5:
+                    # 間違い -> 正解
+                    # 間違いパート
+                    stage_sequence.append(("hover", stage_dict["hover"], other_cube))
+                    stage_sequence.append(("stabilize", stage_dict["stabilize"], other_cube))
+                    stage_sequence.append(("grasp", stage_dict["grasp"], other_cube))
+                    stage_sequence.append(("lift", stage_dict["lift"], other_cube))
+                    stage_sequence.append(("drop", 30, other_cube)) # 持ち上げて落とす
+                    
+                    # 正解パート
+                    stage_sequence.append(("hover", stage_dict["hover"], correct_cube))
+                    stage_sequence.append(("stabilize", stage_dict["stabilize"], correct_cube))
+                    stage_sequence.append(("grasp", stage_dict["grasp"], correct_cube))
+                    stage_sequence.append(("lift", stage_dict["lift"], correct_cube))
+                    stage_sequence.append(("to_box", stage_dict["to_box"], correct_cube))
+                    stage_sequence.append(("stabilize_box", stage_dict["stabilize_box"], correct_cube))
+                    stage_sequence.append(("release", stage_dict["release"], correct_cube))
+                else:
+                    # 最初から正解
+                    for stage in stage_dict.keys():
+                        stage_sequence.append((stage, stage_dict[stage], correct_cube))
             else:
-                # 最初から正解
+                # 通常のタスク
                 for stage in stage_dict.keys():
-                    stage_sequence.append((stage, stage_dict[stage], correct_cube))
-        else:
-            # 通常のタスク
-            for stage in stage_dict.keys():
-                stage_sequence.append((stage, stage_dict[stage], None))
+                    stage_sequence.append((stage, stage_dict[stage], None))
 
-        for stage_name, steps, target_name in stage_sequence:
-            print(f"  Stage: {stage_name} (Target: {target_name})")
-            for t in range(steps):
-                action = expert_policy(env, stage_name, target_cube_name=target_name)
-                
-                # 先に現在の観測とアクションを保存（obs[t]とaction[t]のペア）
-                obs_dict["action"].append(action)
-                for key in current_obs.keys():
-                    if key in obs_dict.keys():
-                        obs_dict[key].append(current_obs[key])
-                
-                # アクションを実行して次の観測を取得
-                current_obs, reward, _, _, _ = env.step(action)
-                
-                if reward > 0:
-                    save_flag = True
-        if not save_flag:
-            print(f"🚫 Skipping episode {ep+1}")
+            for stage_name, steps, target_name in stage_sequence:
+                print(f"  Stage: {stage_name} (Target: {target_name})")
+                for t in range(steps):
+                    action = expert_policy(env, stage_name, target_cube_name=target_name)
+                    
+                    # 先に現在の観測とアクションを保存（obs[t]とaction[t]のペア）
+                    obs_dict["action"].append(action)
+                    for key in current_obs.keys():
+                        if key in obs_dict.keys():
+                            obs_dict[key].append(current_obs[key])
+                    
+                    # アクションを実行して次の観測を取得
+                    current_obs, reward, _, _, _ = env.step(action)
+                    
+                    if reward > 0:
+                        save_flag = True
+            if not save_flag:
+                print(f"🚫 Skipping episode {ep+1}")
+                continue
+            print(f"✅ Saving episode {ep+1}")
+            ep += 1
+            for i in range(len(obs_dict["action"])):
+                obs = {"task": env.get_task_description()}
+                for key in obs_dict.keys():
+                    if key.startswith("observation.images") and isinstance(obs_dict[key][i], Image.Image):
+                        obs_dict[key][i] = np.array(obs_dict[key][i])
+                    obs[key] = obs_dict[key][i]
+                dataset.add_frame(obs)
+            dataset.save_episode()
+        except Exception as e:
+            print(f"⚠️ Error occurred during episode {ep+1}: {e}")
+            print("🔄 Retrying episode...")
+            env.close()
+            env = GenesisEnv(task=task, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer, sound_config=sound_config)
             continue
-        print(f"✅ Saving episode {ep+1}")
-        ep += 1
-        for i in range(len(obs_dict["action"])):
-            obs = {"task": env.get_task_description()}
-            for key in obs_dict.keys():
-                if key.startswith("observation.images") and isinstance(obs_dict[key][i], Image.Image):
-                    obs_dict[key][i] = np.array(obs_dict[key][i])
-                obs[key] = obs_dict[key][i]
-            dataset.add_frame(obs)
-        dataset.save_episode()
     env.close()
 if __name__ == "__main__":
     # datasetを作成したいタスクを指定

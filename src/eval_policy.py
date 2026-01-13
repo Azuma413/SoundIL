@@ -104,110 +104,119 @@ def main(training_name, observation_height, observation_width, episode_num, show
     all_actions = []  # 全エピソードのactionを保存
     combined_video_h = observation_height * 2
     combined_video_w = observation_width * 2
-    for ep in range(episode_num):
-        print(f"\n=== Episode {ep+1} ===")
-        policy.reset()
-        preprocessor.reset()
-        postprocessor.reset()
-        numpy_observation, _ = env.reset()
-        rewards = []
-        frames = []  # Stores combined frames
-        combined_frame = combine_frames(numpy_observation, observation_height, observation_width)
-        frames.append(combined_frame)
-        step = 0
-        done = False
-        while not done:
-            # Convert observation keys to format expected by build_dataset_frame
-            # Environment returns keys like "observation.images.front"
-            # build_dataset_frame expects short keys like "front" for images
-            converted_obs = {}
-            for key, value in numpy_observation.items():
-                if key.startswith("observation.images."):
-                    # Extract short name (e.g., "front" from "observation.images.front")
-                    short_key = key.replace("observation.images.", "")
-                    # Make a copy to ensure contiguous memory layout (avoid negative stride issues)
-                    converted_obs[short_key] = value.copy() if isinstance(value, np.ndarray) else value
-                elif key == "observation.state":
-                    # For state, extract individual joint values
-                    # build_dataset_frame expects individual joint names as keys
-                    if "observation.state" in dataset.features:
-                        for i, name in enumerate(dataset.features["observation.state"]["names"]):
-                            converted_obs[name] = value[i]
+    ep = 0
+    while ep < episode_num:
+        try:
+            print(f"\n=== Episode {ep+1} ===")
+            policy.reset()
+            preprocessor.reset()
+            postprocessor.reset()
+            numpy_observation, _ = env.reset()
+            rewards = []
+            frames = []  # Stores combined frames
+            combined_frame = combine_frames(numpy_observation, observation_height, observation_width)
+            frames.append(combined_frame)
+            step = 0
+            done = False
+            while not done:
+                # Convert observation keys to format expected by build_dataset_frame
+                # Environment returns keys like "observation.images.front"
+                # build_dataset_frame expects short keys like "front" for images
+                converted_obs = {}
+                for key, value in numpy_observation.items():
+                    if key.startswith("observation.images."):
+                        # Extract short name (e.g., "front" from "observation.images.front")
+                        short_key = key.replace("observation.images.", "")
+                        # Make a copy to ensure contiguous memory layout (avoid negative stride issues)
+                        converted_obs[short_key] = value.copy() if isinstance(value, np.ndarray) else value
+                    elif key == "observation.state":
+                        # For state, extract individual joint values
+                        # build_dataset_frame expects individual joint names as keys
+                        if "observation.state" in dataset.features:
+                            for i, name in enumerate(dataset.features["observation.state"]["names"]):
+                                converted_obs[name] = value[i]
+                    else:
+                        converted_obs[key] = value.copy() if isinstance(value, np.ndarray) else value
+                
+                # Build observation frame in dataset format
+                observation_frame = build_dataset_frame(dataset.features, converted_obs, prefix=OBS_STR)
+                
+                # Use predict_action to apply preprocessor, policy, and postprocessor
+                action_dict = predict_action(
+                    observation=observation_frame,
+                    policy=policy,
+                    device=get_safe_torch_device(policy.config.device),
+                    preprocessor=preprocessor,
+                    postprocessor=postprocessor,
+                    use_amp=policy.config.use_amp,
+                    task=task_name,
+                    robot_type=None,
+                )
+                
+                # Extract action tensor from the returned dictionary
+                if isinstance(action_dict, dict) and 'action' in action_dict:
+                    action_tensor = action_dict['action']
                 else:
-                    converted_obs[key] = value.copy() if isinstance(value, np.ndarray) else value
-            
-            # Build observation frame in dataset format
-            observation_frame = build_dataset_frame(dataset.features, converted_obs, prefix=OBS_STR)
-            
-            # Use predict_action to apply preprocessor, policy, and postprocessor
-            action_dict = predict_action(
-                observation=observation_frame,
-                policy=policy,
-                device=get_safe_torch_device(policy.config.device),
-                preprocessor=preprocessor,
-                postprocessor=postprocessor,
-                use_amp=policy.config.use_amp,
-                task=task_name,
-                robot_type=None,
-            )
-            
-            # Extract action tensor from the returned dictionary
-            if isinstance(action_dict, dict) and 'action' in action_dict:
-                action_tensor = action_dict['action']
+                    action_tensor = action_dict
+                
+                # Convert to numpy for environment
+                numpy_action = action_tensor.squeeze(0).cpu().numpy()
+                all_actions.append(numpy_action)  # actionを記録
+                numpy_observation, reward, terminated, truncated, info = env.step(numpy_action)
+                # print(f"Step: {step}, Reward: {reward:.4f}, Terminated: {terminated}, Truncated: {truncated}")
+                rewards.append(reward)
+                current_combined_frame = combine_frames(numpy_observation, observation_height, observation_width)
+                frames.append(current_combined_frame)
+                done = terminated or truncated
+                step += 1
+                if reward > 0: # 成功したら早期終了
+                    done = True
+            total_reward = sum(rewards)
+            print(f"Evaluation finished after {step} steps. Total reward: {total_reward:.4f}")
+            if total_reward > 0:
+                print("Result: Success!")
+                success_num += 1
             else:
-                action_tensor = action_dict
-            
-            # Convert to numpy for environment
-            numpy_action = action_tensor.squeeze(0).cpu().numpy()
-            all_actions.append(numpy_action)  # actionを記録
-            numpy_observation, reward, terminated, truncated, info = env.step(numpy_action)
-            # print(f"Step: {step}, Reward: {reward:.4f}, Terminated: {terminated}, Truncated: {truncated}")
-            rewards.append(reward)
-            current_combined_frame = combine_frames(numpy_observation, observation_height, observation_width)
-            frames.append(current_combined_frame)
-            done = terminated or truncated
-            step += 1
-            if reward > 0: # 成功したら早期終了
-                done = True
-        total_reward = sum(rewards)
-        print(f"Evaluation finished after {step} steps. Total reward: {total_reward:.4f}")
-        if total_reward > 0:
-            print("Result: Success!")
-            success_num += 1
-        else:
-            print("Result: Failure.")
-        valid_frames = [f for f in frames if f is not None and isinstance(f, np.ndarray)]
-        if valid_frames:
-            fps = env.metadata.get("render_fps", 30)
-            video_path = output_directory / f"rollout_ep{ep+1}.mp4"
-            processed_valid_frames = []
-            for f_val in valid_frames:
-                if f_val.shape != (combined_video_h, combined_video_w, 3):
-                    print(f"Warning: Frame shape is {f_val.shape}, expected {(combined_video_h, combined_video_w, 3)}. Skipping this frame for video.")
-                    continue
-                if f_val.dtype != np.uint8:
-                    f_val = f_val.astype(np.uint8) # Should be handled by process_image_for_video already
-                processed_valid_frames.append(f_val)
-            valid_frames = processed_valid_frames
-            if not valid_frames:
-                print("No valid frames with correct dimensions found after processing, skipping video saving.")
-            else:
-                first_shape = valid_frames[0].shape
-                if not all(f.shape == first_shape for f in valid_frames):
-                    # This check might be redundant if the loop above filters correctly, but good for safety
-                    print(f"Warning: Frame shapes are inconsistent after processing. First frame: {first_shape}. Video may be corrupted.")
-                try:
-                    imageio.mimsave(str(video_path), np.stack(valid_frames), fps=fps, output_params=['-pix_fmt', 'yuv420p'])
-                except Exception as e1:
-                    print(f"Error saving with pyav plugin: {e1}. Trying default imageio plugin.")
+                print("Result: Failure.")
+            valid_frames = [f for f in frames if f is not None and isinstance(f, np.ndarray)]
+            if valid_frames:
+                fps = env.metadata.get("render_fps", 30)
+                video_path = output_directory / f"rollout_ep{ep+1}.mp4"
+                processed_valid_frames = []
+                for f_val in valid_frames:
+                    if f_val.shape != (combined_video_h, combined_video_w, 3):
+                        print(f"Warning: Frame shape is {f_val.shape}, expected {(combined_video_h, combined_video_w, 3)}. Skipping this frame for video.")
+                        continue
+                    if f_val.dtype != np.uint8:
+                        f_val = f_val.astype(np.uint8) # Should be handled by process_image_for_video already
+                    processed_valid_frames.append(f_val)
+                valid_frames = processed_valid_frames
+                if not valid_frames:
+                    print("No valid frames with correct dimensions found after processing, skipping video saving.")
+                else:
+                    first_shape = valid_frames[0].shape
+                    if not all(f.shape == first_shape for f in valid_frames):
+                        # This check might be redundant if the loop above filters correctly, but good for safety
+                        print(f"Warning: Frame shapes are inconsistent after processing. First frame: {first_shape}. Video may be corrupted.")
                     try:
-                        imageio.mimsave(str(video_path), np.stack(valid_frames), fps=fps)
-                    except Exception as e2:
-                        print(f"Error saving video with default plugin: {e2}. Video saving failed for episode {ep+1}.")
-                else:
-                    print(f"Video saved: {video_path}")
-        else:
-            print("No valid frames recorded, skipping video saving.")
+                        imageio.mimsave(str(video_path), np.stack(valid_frames), fps=fps, output_params=['-pix_fmt', 'yuv420p'])
+                    except Exception as e1:
+                        print(f"Error saving with pyav plugin: {e1}. Trying default imageio plugin.")
+                        try:
+                            imageio.mimsave(str(video_path), np.stack(valid_frames), fps=fps)
+                        except Exception as e2:
+                            print(f"Error saving video with default plugin: {e2}. Video saving failed for episode {ep+1}.")
+                    else:
+                        print(f"Video saved: {video_path}")
+            else:
+                print("No valid frames recorded, skipping video saving.")
+            ep += 1
+        except Exception as e:
+            print(f"⚠️ Error occurred during episode {ep+1}: {e}")
+            print("🔄 Retrying episode...")
+            env.close()
+            env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
+            continue
     env.close()
     success_rate = (success_num / episode_num) * 100
     print(f"Success rate: {success_num}/{episode_num} ({success_rate:.2f}%)")
