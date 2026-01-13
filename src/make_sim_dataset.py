@@ -49,65 +49,51 @@ def expert_policy(env, stage, target_cube_name=None):
         
     cube_pos = target_cube_pos
     box_pos = target_box_pos
-    grip_close = np.array([0.0])
-    grip_open = np.array([np.pi/3])
-    quat = np.array([1, 0, 0, 0], dtype=np.float32)
+    grip_close = np.array([-0.02, -0.02])  # tighter grip for Franka
+    grip_open = np.array([0.04, 0.04])
+    quat = np.array([0, 1, 0, 0], dtype=np.float32)  # Franka gripper orientation
     quat /= np.linalg.norm(quat)
     eef = task.eef
-    offset = np.array([-0.02, 0.0, 0.0])
     # === Stage definitions ===
     if stage == "hover":
         is_first_call = True
-        target_pos = cube_pos + np.array([0.0, 0.0, 0.15]) + offset # hover safely
+        target_pos = cube_pos + np.array([0.0, 0.0, 0.2])  # hover safely
         grip = grip_open
     elif stage == "stabilize":
-        target_pos = cube_pos + np.array([0.0, 0.0, 0.10]) + offset
+        target_pos = cube_pos + np.array([0.0, 0.0, 0.1])
         grip = grip_open  # still open
     elif stage == "grasp":
-        target_pos = cube_pos + np.array([0.0, 0.0, 0.07]) + offset  # lower slightly
+        target_pos = cube_pos + np.array([0.0, 0.0, 0.1])  # lower slightly
         grip = grip_close  # close grip
     elif stage == "lift":
         if is_first_call:
             saved_cube_pos = cube_pos
             is_first_call = False
-        target_pos = np.array([saved_cube_pos[0], saved_cube_pos[1], 0.18]) + offset
+        target_pos = np.array([saved_cube_pos[0], saved_cube_pos[1], 0.25])
         grip = grip_close  # keep closed
     elif stage == "to_box":
-        target_pos = box_pos + np.array([0.0, 0.0, 0.18]) + offset
+        target_pos = box_pos + np.array([0.0, 0.0, 0.25])
         grip = grip_close
     elif stage == "stabilize_box":
-        target_pos = box_pos + np.array([0.0, 0.0, 0.18]) + offset
+        target_pos = box_pos + np.array([0.0, 0.0, 0.25])
         grip = grip_close
     elif stage == "release":
-        # releaseステージでは、箱の上で離す場合と、空中で離す場合（soundShakeの失敗時）がある
-        # ここでは単純に現在のXY位置でグリップを開くようにする、あるいはbox_posを使うか？
-        # 元のコードはbox_posを使っていたが、soundShakeの失敗時はboxの上ではないかもしれない
-        # しかし、stage="release"は通常boxの上でのリリースを指す
-        # soundShakeの失敗時のリリースは、liftした位置（saved_cube_pos）の上空で行うのが自然
-        # 汎用性を持たせるため、もしtarget_cube_nameが指定されていて、かつそれが正解でない場合は
-        # その場（lift位置）で離すようにする？
-        # ひとまず元の挙動（box_pos）を維持しつつ、soundShakeの失敗時は別のstage名を使うか、
-        # あるいは呼び出し側で制御するか。
-        # ここではシンプルに、target_box_posを使う（soundShake失敗時もbox_posに移動してから離すのは変なので）
-        # -> soundShake失敗時は "drop" というステージを作るか、
-        # もしくは "release" のターゲットを動的に変える。
-        # 今回は "release" は box_pos 依存のままにし、soundShake失敗時は "lift" の後に "drop" ステージを追加して対応する。
-        target_pos = box_pos + np.array([0.0, 0.0, 0.18]) + offset
+        target_pos = box_pos + np.array([0.0, 0.0, 0.25])
         grip = grip_open
-    elif stage == "drop": # soundShake失敗時用：持ち上げた位置で離す
+    elif stage == "drop":  # soundShake失敗時用：持ち上げた位置で離す
         if saved_cube_pos is not None:
-            target_pos = np.array([saved_cube_pos[0], saved_cube_pos[1], 0.18]) + offset
+            target_pos = np.array([saved_cube_pos[0], saved_cube_pos[1], 0.25])
         else:
-            target_pos = cube_pos + np.array([0.0, 0.0, 0.18]) + offset
+            target_pos = cube_pos + np.array([0.0, 0.0, 0.25])
         grip = grip_open
     else:
         raise ValueError(f"Unknown stage: {stage}")
-    qpos = task.so_arm.inverse_kinematics(
+    qpos = task.franka.inverse_kinematics(
         link=eef,
         pos=target_pos,
         quat=quat,
     ).cpu().numpy()
-    qpos_arm = qpos[:-1]
+    qpos_arm = qpos[:-2]  # Franka has 7 arm joints + 2 finger joints
     action = np.concatenate([qpos_arm, grip])
     return action.astype(np.float32)
 
@@ -127,9 +113,9 @@ def initialize_dataset(env: GenesisEnv) -> LeRobotDataset:
             states_name = [
                 "eef_pos_x", "eef_pos_y", "eef_pos_z",
                 "eef_quat_w", "eef_quat_x", "eef_quat_y", "eef_quat_z",
-                "grip_angle",
+                "grip_left", "grip_right",
             ]
-            features[key] = {"dtype": "float32", "shape": (8,), "names": states_name}
+            features[key] = {"dtype": "float32", "shape": (9,), "names": states_name}
         elif key.startswith("observation.images"):
             # すべての画像は3チャンネル（sound0, sound1, specも含む）
             features[key] = {"dtype": "video", "shape": (height, width, 3), "names": ("height", "width", "channels")}
@@ -137,7 +123,7 @@ def initialize_dataset(env: GenesisEnv) -> LeRobotDataset:
         repo_id=None,
         fps=30,
         root=dataset_path,
-        robot_type="so-101",
+        robot_type="franka",
         use_videos=True,
         features=features,
         # batch_encoding_size=10,
@@ -218,9 +204,9 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
                     
                     if reward > 0:
                         save_flag = True
-            if not save_flag:
-                print(f"🚫 Skipping episode {ep+1}")
-                continue
+            # if not save_flag:
+            #     print(f"🚫 Skipping episode {ep+1}")
+            #     continue
             print(f"✅ Saving episode {ep+1}")
             ep += 1
             for i in range(len(obs_dict["action"])):
@@ -244,20 +230,20 @@ if __name__ == "__main__":
     # 新フォーマット例: soundShake-m4-f6-s2-p4
     
     task_candidates = [
-        "sound-m3-f30-s2-p0",
-        # "normal",
+        # "sound-m3-f30-s2-p0",
+        "normal",
         # "sound-m3-f5-s1-p0" # 旧フォーマットテスト用に対応する場合は残すが、新フォーマット推奨
     ]
     
     for task in task_candidates:
         stage_dict = {
-            "hover": 80, # cubeの上に手を持っていく
-            "stabilize": 30, # cubeの上で手を安定させる
-            "grasp": 70, # cubeを掴む
-            "lift": 40, # cubeを持ち上げる
-            "to_box": 40, # cubeを箱の上に持っていく
-            "stabilize_box": 10, # cubeを箱の上で安定させる
-            "release": 100 # cubeを離す
+            "hover": 100, # cubeの上に手を持っていく
+            "stabilize": 40, # cubeの上で手を安定させる
+            "grasp": 20, # cubeを掴む
+            "lift": 50, # cubeを持ち上げる
+            "to_box": 60, # cubeを箱の上に持っていく
+            "stabilize_box": 20, # cubeを箱の上で安定させる
+            "release": 60 # cubeを離す
         }
         
         # GenesisEnv内で解析されるため、sound_configはNoneで渡す

@@ -5,12 +5,15 @@ import random
 import torch
 
 joints_name = (
-    "shoulder_pan",
-    "shoulder_lift",
-    "elbow_flex",
-    "wrist_flex",
-    "wrist_roll",
-    "gripper",
+    "joint1",
+    "joint2",
+    "joint3",
+    "joint4",
+    "joint5",
+    "joint6",
+    "joint7",
+    "finger_joint1",
+    "finger_joint2",
 )
 AGENT_DIM = len(joints_name)
 
@@ -25,7 +28,7 @@ class NormalTask:
         self.observation_height = observation_height
         self.observation_width = observation_width
         self._random = np.random.RandomState()
-        self.box_scale = 0.75
+        self.box_scale = 1.0
         self._build_scene(show_viewer)
         self.observation_space = self._make_obs_space()
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(AGENT_DIM,), dtype=np.float32)
@@ -51,7 +54,6 @@ class NormalTask:
                 box_box_detection=True,
                 noslip_iterations=5,
                 constraint_timeconst=0.001,
-                # integrator=gs.integrator.implicitfast,
             ),
             show_viewer=show_viewer,
         )
@@ -59,64 +61,64 @@ class NormalTask:
             morph=gs.morphs.Plane(),
             surface=gs.surfaces.Plastic(diffuse_texture=gs.textures.ImageTexture(image_path="images/wood.jpg"))
         )
-        self.so_arm = self.scene.add_entity(gs.morphs.MJCF(file="URDF/so101/so101_new_calib.xml"))
+        self.franka = self.scene.add_entity(gs.morphs.MJCF(file="xml/franka_emika_panda/panda.xml"))
         if self.num_cubes >= 1:
             self.cubeR = self.scene.add_entity(
-                gs.morphs.Box(size=(0.03, 0.03, 0.03), pos=(0.45, 0.0, 0.02)),
+                gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.65, 0.0, 0.025)),
                 material=gs.materials.Rigid(rho=50, friction=1.5, coup_friction=1.0, coup_softness=0.001),
                 surface=gs.surfaces.Plastic(color=(0.7, 0.3, 0.3)) if not self.same_color else gs.surfaces.Plastic(color=(0.3, 0.7, 0.3)),
             )
         if self.num_cubes >= 2:
             self.cubeG = self.scene.add_entity(
-                gs.morphs.Box(size=(0.03, 0.03, 0.03), pos=(0.30, 0.0, 0.02)),
+                gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.50, 0.0, 0.025)),
                 material=gs.materials.Rigid(rho=50, friction=1.5, coup_friction=1.0, coup_softness=0.001),
                 surface=gs.surfaces.Plastic(color=(0.3, 0.7, 0.3))
             )
         if self.num_cubes >= 3:
             self.cubeB = self.scene.add_entity(
-                gs.morphs.Box(size=(0.03, 0.03, 0.03), pos=(0.15, 0.0, 0.02)),
+                gs.morphs.Box(size=(0.05, 0.05, 0.05), pos=(0.35, 0.0, 0.025)),
                 material=gs.materials.Rigid(rho=50, friction=1.5, coup_friction=1.0, coup_softness=0.001),
                 surface=gs.surfaces.Plastic(color=(0.3, 0.3, 0.7)) if not self.same_color else gs.surfaces.Plastic(color=(0.3, 0.7, 0.3)),
             )
         
         if self.use_two_boxes:
             self.box_left = self.scene.add_entity(
-                gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.3, 0.15, 0.0), scale=self.box_scale),
+                gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.5, 0.15, 0.0), scale=self.box_scale),
                 surface=gs.surfaces.Plastic(color=(0.8, 0.8, 0.8))
             )
             self.box_right = self.scene.add_entity(
-                gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.3, -0.15, 0.0), scale=self.box_scale),
+                gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.5, -0.15, 0.0), scale=self.box_scale),
                 surface=gs.surfaces.Plastic(color=(0.8, 0.8, 0.8))
             )
             # 互換性のためにself.boxも定義しておく（デフォルトは左にしておくが、タスクによって使い分ける）
             self.box = self.box_left 
         else:
             self.box = self.scene.add_entity(
-                gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.3, 0.0, 0.0), scale=self.box_scale),
+                gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.5, 0.0, 0.0), scale=self.box_scale),
                 surface=gs.surfaces.Plastic(color=(0.8, 0.8, 0.8))
             )
         self.front_cam = self.scene.add_camera(
             res=(self.observation_width, self.observation_height),
-            pos=(1.2, 0.0, 0.4),
-            lookat=(0.3, 0.0, 0.15),
-            fov=25,
+            pos=(2.5, 0.0, 1.5),
+            lookat=(0.5, 0.0, 0.1),
+            fov=18,
             GUI=False
         )
         self.side_cam = self.scene.add_camera(
             res=(self.observation_width, self.observation_height),
-            pos=(0.15, 0.8, 1.0),
-            lookat=(0.15, 0.0, 0.05),
+            pos=(0.5, 1.5, 1.5),
+            lookat=(0.5, 0.0, 0.0),
             fov=20,
             GUI=False
         )
         self.scene.build()
-        self.motors_dof = np.arange(5)
-        self.fingers_dof = np.arange(5, 6)
-        self.eef = self.so_arm.get_link("gripper")
+        self.motors_dof = np.arange(7)
+        self.fingers_dof = np.arange(7, 9)
+        self.eef = self.franka.get_link("hand")
 
     def _make_obs_space(self):
         return spaces.Dict({
-            "observation.state": spaces.Box(low=-np.inf, high=np.inf, shape=(8,), dtype=np.float32),
+            "observation.state": spaces.Box(low=-np.inf, high=np.inf, shape=(9,), dtype=np.float32),
             "observation.images.front": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
             "observation.images.side": spaces.Box(low=0, high=255, shape=(self.observation_height, self.observation_width, 3), dtype=np.uint8),
         })
@@ -136,54 +138,54 @@ class NormalTask:
         else:
             self.color = random.choice(["red", "green", "blue"])
         if self.use_two_boxes:
-            pos_tensor_l = torch.tensor([0.3, 0.15, 0.0], dtype=torch.float32, device=gs.device)
-            pos_tensor_r = torch.tensor([0.3, -0.15, 0.0], dtype=torch.float32, device=gs.device)
+            pos_tensor_l = torch.tensor([0.5, 0.15, 0.0], dtype=torch.float32, device=gs.device)
+            pos_tensor_r = torch.tensor([0.5, -0.15, 0.0], dtype=torch.float32, device=gs.device)
             quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
             self.box_left.set_pos(pos_tensor_l)
             self.box_left.set_quat(quat_tensor)
             self.box_right.set_pos(pos_tensor_r)
             self.box_right.set_quat(quat_tensor)
         else:
-            pos_tensor = torch.tensor([0.3, 0.0, 0.0], dtype=torch.float32, device=gs.device)
+            pos_tensor = torch.tensor([0.5, 0.0, 0.0], dtype=torch.float32, device=gs.device)
             quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
             self.box.set_pos(pos_tensor)
             self.box.set_quat(quat_tensor)
         
         # CubeR
         if self.num_cubes >= 1:
-            self.set_random_state(self.cubeR, (0.15, 0.3), (-0.2, 0.2), 0.02)
+            self.set_random_state(self.cubeR, (0.3, 0.7), (-0.3, 0.3), 0.04)
             while self.compute_reward(target="cubeR") == 1.0:
                 print("CubeR is in the box, resetting position...")
-                self.set_random_state(self.cubeR, (0.15, 0.3), (-0.2, 0.2), 0.02)
+                self.set_random_state(self.cubeR, (0.3, 0.7), (-0.3, 0.3), 0.04)
         
         # CubeG
         if self.num_cubes >= 2:
-            self.set_random_state(self.cubeG, (0.15, 0.3), (-0.2, 0.2), 0.02)
+            self.set_random_state(self.cubeG, (0.3, 0.7), (-0.3, 0.3), 0.04)
             while self.compute_reward(target="cubeG") == 1.0:
                 print("CubeG is in the box, resetting position...")
-                self.set_random_state(self.cubeG, (0.15, 0.3), (-0.2, 0.2), 0.02)
+                self.set_random_state(self.cubeG, (0.3, 0.7), (-0.3, 0.3), 0.04)
         
         # CubeB
         if self.num_cubes >= 3:
-            self.set_random_state(self.cubeB, (0.15, 0.3), (-0.2, 0.2), 0.02)
+            self.set_random_state(self.cubeB, (0.3, 0.7), (-0.3, 0.3), 0.04)
             while self.compute_reward(target="cubeB") == 1.0:
                 print("CubeB is in the box, resetting position...")
-                self.set_random_state(self.cubeB, (0.15, 0.3), (-0.2, 0.2), 0.02)
-        qpos = np.array([0.0, -np.pi/2, np.pi/2, 1.0, 0.0, 0.04])
+                self.set_random_state(self.cubeB, (0.3, 0.7), (-0.3, 0.3), 0.04)
+        qpos = np.array([0.0, -0.4, 0.0, -2.2, 0.0, 2.0, 0.8, 0.04, 0.04])
         qpos_tensor = torch.tensor(qpos, dtype=torch.float32, device=gs.device)
-        self.so_arm.set_dofs_kp(
-            np.array([500, 500, 500, 500, 500, 100]),
+        self.franka.set_dofs_kp(
+            np.array([4500, 4500, 3500, 3500, 2000, 2000, 2000, 100, 100]),
         )
-        self.so_arm.set_dofs_kv(
-            np.array([100, 100, 100, 100, 100, 100]),
+        self.franka.set_dofs_kv(
+            np.array([450, 450, 350, 350, 200, 200, 200, 10, 10]),
         )
-        self.so_arm.set_dofs_force_range(
-            np.array([-20, -20, -20, -10, -10, -5]),
-            np.array([ 20,  20,  20,  10,  10,  5]),
+        self.franka.set_dofs_force_range(
+            np.array([-87, -87, -87, -87, -12, -12, -12, -100, -100]),
+            np.array([ 87,  87,  87,  87,  12,  12,  12,  100,  100]),
         )
-        self.so_arm.set_qpos(qpos_tensor, zero_velocity=True)
-        self.so_arm.control_dofs_position(qpos_tensor[:5], self.motors_dof)
-        self.so_arm.control_dofs_position(qpos_tensor[5:], self.fingers_dof)
+        self.franka.set_qpos(qpos_tensor, zero_velocity=True)
+        self.franka.control_dofs_position(qpos_tensor[:7], self.motors_dof)
+        self.franka.control_dofs_position(qpos_tensor[7:], self.fingers_dof)
         self.scene.step()
         self.front_cam.start_recording()
         self.side_cam.start_recording()
@@ -199,8 +201,8 @@ class NormalTask:
 
     def step(self, action):
         action_tensor = torch.tensor(action, dtype=torch.float32, device=gs.device)
-        self.so_arm.control_dofs_position(action_tensor[:5], self.motors_dof)
-        self.so_arm.control_dofs_position(action_tensor[5:], self.fingers_dof)
+        self.franka.control_dofs_position(action_tensor[:7], self.motors_dof)
+        self.franka.control_dofs_position(action_tensor[7:], self.fingers_dof)
         self.scene.step()
         reward = self.compute_reward()
         obs = self.get_obs()
@@ -263,8 +265,8 @@ class NormalTask:
     def get_obs(self):
         eef_pos = self.eef.get_pos().cpu().numpy() # 3次元
         eef_rot = self.eef.get_quat().cpu().numpy() # 4次元
-        gripper = self.so_arm.get_dofs_position()[5:].cpu().numpy() # 1次元
-        agent_pos = np.concatenate([eef_pos, eef_rot, gripper]) # 8次元
+        gripper = self.franka.get_dofs_position()[7:9].cpu().numpy() # 2次元
+        agent_pos = np.concatenate([eef_pos, eef_rot, gripper]) # 9次元
         front_pixels = self.front_cam.render()[0]
         assert front_pixels.ndim == 3, f"front_pixels shape {front_pixels.shape} is not 3D (H, W, 3)"
         side_pixels = self.side_cam.render()[0]
