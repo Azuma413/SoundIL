@@ -222,50 +222,77 @@ class SoundTask(NormalTask):
 
 if __name__ == "__main__":
     import cv2
+    import re
+    task = "soundDiff-m3-f30-s2-p0"
     
-    # SoundConfigの設定
-    sound_config = SoundConfig(
-        observation_height=480,
-        observation_width=640,
-        mic_array_num=3,
-        mics_per_array=8,
-        use_spectrogram=True,
-        audio_file_path="sounds/1.wav"
-    )
-    
-    # タスクの初期化
-    gs.init(backend=gs.gpu, precision="32")
-    task = SoundTask(
-        observation_height=480,
-        observation_width=640,
+    parts = task.split("-")
+    task_type = parts[0]
+    pattern = r"-m(\d+)-f(\d+)-s(\d+)-p(\d+)"
+    match = re.search(pattern, task)
+    if match:
+        m, f, s, p = map(int, match.groups())
+        # m: mic_array_num
+        mic_array_num = m
+        # f: update_freq (Hz) -> SoundConfig.update_freq (Interval frames)
+        # Base FPS = 30
+        update_freq = max(1, int(30 / f))
+        # s: sound info
+        use_spectrogram = False
+        if s == 0:
+            mic_array_num = 0 # 音情報なし
+        elif s == 1:
+            use_spectrogram = False
+        elif s == 2:
+            use_spectrogram = True
+        # p: processing
+        use_gaussian_filter = False
+        use_temporal_smoothing = False
+        use_feature = False
+        if p == 1:
+            use_gaussian_filter = True
+        elif p == 2:
+            use_temporal_smoothing = True
+        elif p == 3:
+            use_gaussian_filter = True
+            use_temporal_smoothing = True
+        elif p == 4:
+            use_feature = True
+        sound_config = SoundConfig(
+            mic_array_num=mic_array_num,
+            update_freq=update_freq,
+            use_spectrogram=use_spectrogram,
+            use_gaussian_filter=use_gaussian_filter,
+            use_temporal_smoothing=use_temporal_smoothing,
+            use_feature=use_feature,
+            audio_file_path="sounds/1.wav" # デフォルト
+        )
+    else:
+        raise ValueError(f"Invalid task format: {self.task}")
+
+    env = SoundTask(
+        observation_height=224,
+        observation_width=224,
         show_viewer=False,
-        sound_config=sound_config
+        sound_config=sound_config,
+        task_type=task_type
     )
-    
     # リセットとステップ
-    obs, info = task.reset()
-    
+    obs, info = env.reset()
     for _ in range(10):
         action = np.random.uniform(-1.0, 1.0, size=(AGENT_DIM,))
-        obs, reward, terminated, truncated, info = task.step(action)
-    
+        obs, reward, terminated, truncated, info = env.step(action)
     # 観測の保存
     for key, value in obs.items():
-        if key == "agent_pos":
+        if key == "observation.state":
             continue
-        
         # RGB→BGR変換（OpenCV用）
         if value.ndim == 3 and value.shape[2] == 3:
             value = cv2.cvtColor(value, cv2.COLOR_RGB2BGR)
-        
         print(f"{key}: {value.shape}")
-        
         # ファイル名を整形
         filename = key.replace("observation.images.", "")
         cv2.imwrite(f"images/test_{filename}.png", value)
-    
     # 動画の保存
-    task.save_videos("test_sound_task", fps=30)
-    
+    env.save_videos("test_sound_task", fps=30)
     # クリーンアップ
-    task.close()
+    env.close()

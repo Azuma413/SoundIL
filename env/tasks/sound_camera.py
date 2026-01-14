@@ -18,39 +18,39 @@ class SoundConfig:
     observation_height: int = 128
     observation_width: int = 128
     # マイクロフォンアレイ関連
-    mic_array_num: int = 6  # マイクロフォンアレイの数
-    mic_array_radius: float = 0.25 # 円形に配置する場合のアレイの半径（メートル）
-    mics_per_array: int = 8  # 各アレイのマイク数
-    mic_radius: float = 0.035  # マイクロフォンアレイにおけるマイクの配列の半径（メートル）
+    mic_array_num: int = 6 # マイクロフォンアレイの数
+    mic_array_radius: float = 0.3 # 円形に配置する場合のアレイの半径（メートル）
+    mics_per_array: int = 8 # 各アレイのマイク数
+    mic_radius: float = 0.035 # マイクロフォンアレイにおけるマイクの配列の半径（メートル）
     # 音響シミュレーション関連
-    fs: int = 16000  # サンプリング周波数
-    nfft: int = 512  # FFT長
-    room_max_order: int = 3  # 反射の最大次数
-    sound_speed: float = 343.0  # 音速（m/s）
-    room_height: float = 3.0  # 部屋の高さ
+    fs: int = 16000 # サンプリング周波数
+    nfft: int = 512 # FFT長
+    room_max_order: int = 3 # 反射の最大次数
+    sound_speed: float = 343.0 # 音速（m/s）
+    room_height: float = 3.0 # 部屋の高さ
     # MUSIC法関連
-    music_num_src: int = 3  # 推定する音源数
+    music_num_src: int = 3 # 推定する音源数
     # ピーク検出関連（ビームフォーミング用）
-    num_peaks: int = 1  # 検出するピーク数
-    gaussian_sigma: float = 1.0  # ガウシアンフィルタの強度
+    num_peaks: int = 1 # 検出するピーク数
+    gaussian_sigma: float = 1.0 # ガウシアンフィルタの強度
     # ビームフォーミング関連
-    beamform_normalize: bool = True  # ビームフォーミング出力の正規化
+    beamform_normalize: bool = True # ビームフォーミング出力の正規化
     # スペクトログラム関連
-    use_spectrogram: bool = False  # スペクトログラムを返すか
-    nmf_components: int = 50  # NMFの成分数
-    nmf_threshold: float = 1.6e-3  # NMFマスクの閾値
+    use_spectrogram: bool = False # スペクトログラムを返すか
+    nmf_components: int = 50 # NMFの成分数
+    nmf_threshold: float = 1.6e-3 # NMFマスクの閾値
     # 画像処理オプション
-    use_gaussian_filter: bool = False  # SoundMapにガウシアンフィルタ
-    use_temporal_smoothing: bool = False  # 時間的平滑化
-    temporal_smoothing_weight: float = 0.5  # 時間的平滑化の重み
-    use_feature: bool = False  # 特徴画像を生成
+    use_gaussian_filter: bool = False # SoundMapにガウシアンフィルタ
+    use_temporal_smoothing: bool = False # 時間的平滑化
+    temporal_smoothing_weight: float = 0.5 # 時間的平滑化の重み
+    use_feature: bool = False # 特徴画像を生成
     # 閾値
-    feature_threshold: float = 0.9  # 2値化の閾値
-    marker_size: int = 5  # マーカーのサイズ
+    feature_threshold: float = 0.9 # 2値化の閾値
+    marker_size: int = 5 # マーカーのサイズ
     # 音源ファイル関連
-    audio_file_path: Optional[str] = None  # 音源ファイルのパス（Noneの場合はホワイトノイズ）
-    processing_time: float = 1.0  # シミュレーションで使用する音源の長さ（秒）
-    noise_intensity: float = 0.0  # ノイズ強度（マイク信号に加算するノイズの強度）
+    audio_file_path: Optional[str] = None # 音源ファイルのパス（Noneの場合はホワイトノイズ）
+    processing_time: float = 1.0 # シミュレーションで使用する音源の長さ（秒）
+    noise_intensity: float = 0.0 # ノイズ強度（マイク信号に加算するノイズの強度）
     # Cubeの色
     same_color: bool = True
     update_freq: int = 5 # update_freq回呼び出されるごとに情報を更新
@@ -166,64 +166,20 @@ class SoundCamera:
 
         # 1. 新しい音源チャンクを取得
         new_chunk = self._get_audio_chunk(n_samples)
-        
-        # 2. バッファ更新: 末尾から削除し、先頭に追加 (時系列は index 0 が最新)
-        # original_signal logic: 
-        # required_lengthのゼロ配列を作る -> そこから経過時刻分を末尾から削除する
-        # -> 配列の先頭に音源を結合し，これをoriginal_signalとする
-        # -> 末尾からrequired_length分の配列をsignalとする
-        # This implies the buffer holds the "history" and we prepend new data.
-        # But for pyroomacoustics simulation, we usually want [oldest ... newest].
-        # However, the user requirement says:
-        # "配列の先頭に音源を結合し... 末尾からrequired_length分の配列をsignalとする"
-        # This suggests the buffer grows at the head.
-        # Let's maintain self.signal_buffer as the "original_signal" concept.
-        
-        # Shift buffer: remove from end (oldest), add to start (newest)
-        # Note: self.signal_buffer is initialized to required_length zeros.
-        
         # Create a new buffer by concatenating new_chunk and the previous buffer (minus last n_samples)
         if n_samples >= self.required_length:
             self.signal_buffer = new_chunk[:self.required_length][::-1] # Just take new chunk if it's too long? No, logic says prepend.
-            # If n_samples is huge, we just take the last required_length of it?
-            # Let's follow strictly: "先頭に音源を結合"
-            # If we prepend new data, index 0 is NEWEST.
             pass
         
         # Efficient rolling
         self.signal_buffer = np.roll(self.signal_buffer, n_samples)
         self.signal_buffer[:n_samples] = new_chunk[::-1] # Store new chunk in reverse so index 0 is newest sample?
-        # Wait, if we prepend "new_chunk" to "buffer", then buffer[0] is the start of new_chunk.
-        # If new_chunk is "sound that just happened", and we prepend it, then buffer grows to the left?
-        # Let's interpret "先頭に音源を結合" as "Prepend to the list".
-        # [New Chunk] + [Old Buffer]
-        # Then "末尾からrequired_length分の配列をsignalとする" -> Take the last N samples.
-        # This means the "Old Buffer" is kept, and "New Chunk" is added at the beginning?
-        # If we keep adding to the beginning and taking from the end, we are effectively shifting RIGHT.
-        # [New] [Old...] -> Take [Old...] ? That would mean we lose the new data if we take from end.
-        # User said: "required_lengthのゼロ配列を作る (A)"
-        # "そこから経過時刻分を末尾から削除する (B = A[:-n])"
-        # "配列の先頭に音源を結合し (C = concat(new, B))"
-        # "末尾からrequired_length分の配列をsignalとする (D = C[-req:])"
-        # If A is size N. Remove n from end -> size N-n. Prepend n -> size N.
-        # Take last N -> It is the whole array C.
-        # So effectively: Buffer = [New Data] + [Old Buffer[:-n]]
-        # This means index 0 is the NEWEST data.
-        
-        # Implementation:
-        # self.signal_buffer is size N.
-        # shift right by n_samples.
+
         self.signal_buffer[n_samples:] = self.signal_buffer[:-n_samples]
         self.signal_buffer[:n_samples] = new_chunk[::-1] # Store time-reversed new chunk?
-        # If new_chunk is [t_now-dt, ..., t_now], and we want index 0 to be t_now.
-        # Then we should store it as [t_now, ..., t_now-dt].
-        # So yes, reverse new_chunk.
-        
+
         # 3. 速度履歴の更新
-        # Add (velocity, n_samples) to history
         self.velocity_history.insert(0, (velocity, n_samples))
-        
-        # Trim history if it exceeds required_length
         total_samples = 0
         valid_history = []
         for v, s in self.velocity_history:
@@ -237,7 +193,7 @@ class SoundCamera:
         """デフォルトのマイクロフォン位置を生成（10x10x3の部屋用）"""
         positions = []
         for i in range(self.config.mic_array_num):
-            theta = np.pi * (4*i - self.config.mic_array_num + 2) / (2 * self.config.mic_array_num)
+            theta = np.pi * (4*i - self.config.mic_array_num - 3) / (2 * self.config.mic_array_num)
             x = 5.0 + self.config.mic_array_radius * np.cos(theta)
             y = 5.0 + self.config.mic_array_radius * np.sin(theta)
             positions.append([x, y, 0.1])
@@ -259,8 +215,6 @@ class SoundCamera:
         last_time = self.prev_time
         velocity = self.get_target_velocity()
         
-        # 初回呼び出し時などはdtが大きくなりすぎる可能性があるのでクリップするか、
-        # 30FPS想定で固定するか。ここでは実測値を使うが、上限を設ける。
         if last_time is None:
             dt = 0.033 # Assume 30FPS for first frame
         else:
@@ -269,10 +223,6 @@ class SoundCamera:
         
         self._update_state(dt, velocity)
 
-        # Shake modeの場合、速度履歴に基づいてマスクを作成
-        # self.signal_buffer は [最新 ... 過去] の順
-        # pyroomacoustics に渡す signal は [過去 ... 最新] の順であるべき
-        
         signal_to_process = self.signal_buffer.copy()
         zero_flag = False
         if self.config.shake_mode:
@@ -291,28 +241,17 @@ class SoundCamera:
             
             signal_to_process *= mask
             
-            # 完全に0行列の場合は微小なホワイトノイズを追加
             if np.all(signal_to_process == 0):
                 signal_to_process += np.random.randn(*signal_to_process.shape) * 1e-5
                 zero_flag = True
-
-        # pyroomacoustics用に時間順を正順に戻す ([過去 ... 最新])
         signal_for_simulation = signal_to_process[::-1]
-        
-        # キャッシュが存在し、更新不要な場合は古い画像を返す
         if not should_update and self.cached_sound_map0 is not None:
-            # ただし、signal_bufferは更新されているので、次にrenderが呼ばれたときは
-            # 最新のバッファを使う必要がある。
-            # ここでreturnすると描画は更新されないが、内部状態は更新済み。
             return self.cached_sound_map0, self.cached_sound_map1, self.cached_spectrogram
-        
         # 音源位置の取得
         sound_pos = self.target.get_pos()
         if isinstance(sound_pos, torch.Tensor):
             sound_pos = sound_pos.cpu().numpy()
-        # Genesisの座標系からpyroomacousticsの座標系へ変換
-        sound_pos += np.array([4.85, 5.0, 0.0])
-        
+        sound_pos += np.array([4.5, 5.0, 0.0])
         sound_maps = []
         mic_signals_list = []
         music_results = []
