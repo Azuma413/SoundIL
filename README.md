@@ -47,7 +47,7 @@ sudo apt install ffmpeg -y
 ```bash
 wandb login
 ```
-POLICYはact, diffusion, pi0のいずれかを指定します．
+POLICYはact, diffusion, vqbet, pi0のいずれかを指定します．
 ```bash
 export DATASET_NAME=[データセット名]
 export POLICY=act
@@ -64,3 +64,5 @@ uv run lerobot-train \
   --batch_size=8 \
   --steps=100000
 ```
+
+diffusionはbatch size64で100000 step学習

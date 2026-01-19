@@ -381,14 +381,12 @@ class DatasetProcessor:
         return output_name
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input", type=str, required=True, help="Path to input dataset (e.g. datasets/soundShake-m4-f30-s2-p0_0)")
-    parser.add_argument("--target", type=str, required=True, help="Target task string (e.g. soundShake-m4-f5-s2-p4)")
-    
-    args = parser.parse_args()
-    
-    processor = DatasetProcessor(args.input, args.target)
-    out_path = processor.process()
-    print(f"Dataset processing complete. Saved to {out_path}")
+    input_path = "datasets/sound-m3-f30-s2-p0_0"
+    target_list = ["sound-m3-f10-s2-p1", "sound-m3-f10-s2-p2", "sound-m3-f10-s2-p3", "sound-m3-f10-s2-p4"]
 
-# uv run src/process_dataset.py --input datasets/sound-m3-f30-s2-p0_0 --target sound-m3-f15-s2-p0
+    for target in target_list:
+        processor = DatasetProcessor(input_path, target)
+        out_path = processor.process()
+        print(f"Dataset processing complete. Saved to {out_path}")
+
+# uv run src/process_dataset.py
