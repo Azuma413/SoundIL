@@ -28,16 +28,6 @@ class DatasetProcessor:
         # 時間的平滑化用の過去フレーム
         self.past_frame = None
         if self.config.use_temporal_smoothing:
-            # チャンネル数はFeatureなら3, それ以外はmic_array_num
-            # ただし、入力データセットのmic_array_numに依存する...
-            # いや、ターゲットのmic_array_numに合わせる必要がある
-            # ここでは処理後のチャンネル数で確保する
-            # 入力データは常にm=N (例えばm=6など) あると仮定し、そこから間引くか、
-            # あるいは入力もConfigをパースして整合性を取る必要がある
-            # User Request: "<task名>-m<マイクロフォンアレイ数>-f30-s2-p0のデータセットが与えられた際に"
-            # なので、入力のmと出力のmは異なる可能性があるが、
-            # 基本的にはmは減らす方向か、あるいは同じで処理だけ変えるか。
-            # 今回は単純化のため、Feature変換後のチャンネル数 or 出力Mic数でバッファを持つ
             num_channels = 3 if self.config.use_feature else self.config.mic_array_num
             self.past_frame = np.ones(
                 (self.config.observation_height, self.config.observation_width, num_channels),
@@ -45,7 +35,6 @@ class DatasetProcessor:
             ) * 127.5
 
         # 更新頻度管理
-        # config.update_freq は Interval (frames) になっている
         self.update_interval = self.config.update_freq
         self.frame_count = 0
         
@@ -104,23 +93,12 @@ class DatasetProcessor:
 
     def _reconstruct_sound_map(self, sound0, sound1, total_channels):
         """3ch+3chの画像から元のマルチチャンネルマップを復元"""
-        # sound0: ch 0-2, sound1: ch 3-5
-        # total_channelsに合わせて結合
-        # 入力データのmic_array_numを知る必要があるが、
-        # ここではsound0, sound1の有効データから推測するか、
-        # あるいは単に結合してtargetのmic_array_numだけ使うか。
-        # 入力データセットが f30-s2-p0 なら、p0=加工なし なので、
-        # sound0, sound1 にはrawのsound map (mic array毎の強度) が入っているはず。
         
         h, w, _ = sound0.shape
         # 最大6チャンネルまで対応 (SoundCameraの実装依存)
         full_map = np.zeros((h, w, 6), dtype=sound0.dtype)
         full_map[:, :, 0:3] = sound0
         full_map[:, :, 3:6] = sound1
-        
-        # ターゲットのチャンネル数分だけ切り出す
-        # もし入力のチャンネル数がターゲットより少なかったら...?
-        # User Requestにより、入力は適切なもの(加工用元データ)が与えられると仮定
         return full_map[:, :, :total_channels]
 
     def _convert_to_feature_image(self, sound_map: np.ndarray) -> np.ndarray:
@@ -142,17 +120,6 @@ class DatasetProcessor:
     def _normalize_to_uint8(self, array: np.ndarray) -> np.ndarray:
         """SoundCamera._normalize_to_uint8 と同等"""
         array_normalized = np.zeros_like(array, dtype=np.float32)
-        # feature imageの場合は処理済みではないか？
-        # SoundCameraを見ると、feature image作成後にnormalizeしている
-        # しかしfeature image作成内でも255を使っている。
-        # SoundCameraの実装順序：
-        # 1. sound_map generation (float?) -> No, SoundCamera generates plain float spec map
-        # 2. Gaussian Filter
-        # 3. Convert to Feature (returns float stack with 0-255 range likely)
-        # 4. Normalize to Uint8 (scales min-max to 0-255)
-        # Wait, if Feature Image has 0 and 255 values, normalizing it again might be weird if min/max are already 0/255.
-        # But _normalize_to_uint8 does min-max normalization per channel.
-        # If channel connects 0 and 255, min=0, max=255 -> (x-0)/255*255 = x. Correct.
         
         for i in range(array.shape[2]):
             channel = array[:, :, i]
@@ -162,15 +129,6 @@ class DatasetProcessor:
                 array_normalized[:, :, i] = (channel - min_val) / (max_val - min_val) * 255
             else:
                 array_normalized[:, :, i] = 127.5 # sound_mapの場合はこれだが、featureの場合は？
-                # Feature mapのbinary mapが全部0の場合、max=min=0 -> 127.5になる.
-                # これはまずいのでは？ Feature mapの背景は黒(0)であるべき。
-                # SoundCameraの実装を再確認すると、_normalize_to_uint8 は汎用的。
-                # Featureの場合、binary_mapは0 or 255。もし全部0なら、ここを通るとグレーになる。
-                # SoundCameraの実装通りにするなら、そのままコピーする。
-                # SoundCamera.py Line 512: array_normalized[:, :, i] = 127.5
-                # はい、全部0ならグレーになります。
-                # 特徴量変換p=4の場合、音が無い(全部0)ときはグレーになる挙動で正しいか？
-                # SoundCameraの挙動を再現するならYES。
         
         return np.clip(array_normalized, 0, 255).astype(np.uint8)
 
@@ -198,11 +156,6 @@ class DatasetProcessor:
 
     def process(self, output_name=None):
         if output_name is None:
-            # 入力名 + target_suffix (e.g. kitcut_1ep_newtask)
-            # しかし target_task 自体がsuffix的な情報を含んでいる
-            # 出力Path: datasets/<target_task>
-            # 既存のmake_sim_datasetの命名規則に従うなら datasets/taskName_idx
-            # ここでは単純に datasets/<target_task>_<idx> とする
             idx = 0
             while True:
                 out_path = Path("datasets") / f"{self.target_task}_{idx}"
@@ -210,23 +163,11 @@ class DatasetProcessor:
                     break
                 idx += 1
             output_name = str(out_path)
-            
         print(f"Processing dataset: {self.input_path} -> {output_name}")
-        
-        # 出力用Datasetの準備
-        # featuresは入力からコピーしつつ、specの有無などを調整
         features = self.dataset.features.copy()
-        
-        # s=0 (mic=0) の場合、specは削除、sound0, sound1は残すが中身は0
-        # s=1 (no spec) の場合、specは削除
-        # s=2 (spec) の場合、specは残す (入力にあれば)
-        
         if not self.config.use_spectrogram:
             if "observation.images.spec" in features:
                 del features["observation.images.spec"]
-                
-        # LeRobotDataset作成
-        # image_writer_threadsなどを適切に設定
         output_dataset = LeRobotDataset.create(
             repo_id=None,
             fps=30,
@@ -236,17 +177,11 @@ class DatasetProcessor:
             features=features,
             batch_encoding_size=1, # 安全のため1
         )
-        
-        # エピソードループ
         for ep_idx in range(self.dataset.num_episodes):
             print(f"Processing Episode {ep_idx+1}/{self.dataset.num_episodes}")
-            # LeRobotDataset (v3.0) might use meta.episodes list
-            # meta.episodes[i] contains "dataset_from_index" and "dataset_to_index"
             episode_meta = self.dataset.meta.episodes[ep_idx]
             from_idx = episode_meta["dataset_from_index"]
             to_idx = episode_meta["dataset_to_index"]
-            
-            # Reset state for new episode
             self.frame_count = 0
             if self.config.use_temporal_smoothing:
                 num_channels = 3 if self.config.use_feature else self.config.mic_array_num
@@ -257,64 +192,35 @@ class DatasetProcessor:
             self.cached_sound_map0 = None
             self.cached_sound_map1 = None
             self.cached_spectrogram = None
-            
-            # フレームループ
             for frame_idx in range(from_idx, to_idx):
                 item = self.dataset[frame_idx]
-                
-                # アイテム辞書を作成 (Modify用に)
-                # itemはTensor等かもしれないのでnumpyへ
                 frame_data = {}
                 for k, v in item.items():
                     if isinstance(v, torch.Tensor):
                         v = v.cpu().numpy()
                     frame_data[k] = v
-                
-                # 画像のProcessing
-                # 1. 取得
-                # 入力データセットには sound0, sound1 があると仮定
-                # (s=0, p=0のデータセットでも sound0,1 はゼロ埋めで存在するはずだが、
-                #  加工元となるデータセットは音情報を含んでいる前提 (s=2, p=0など))
-                # アイテム辞書を作成 (Modify用に)
                 frame_data = {}
                 for k, v in item.items():
                     if isinstance(v, torch.Tensor):
                         v = v.cpu().numpy()
                     frame_data[k] = v
-
-                # Remove system keys that LeRobotDataset adds automatically or retrieves
                 system_keys = ["index", "episode_index", "frame_index", "timestamp", "task_index", "dataset_index"]
                 for sk in system_keys:
                     if sk in frame_data:
                         del frame_data[sk]
-
-                # Transpose ALL image/video features from CHW to HWC
-                # output_dataset.features にあるものだけで、かつ画像/動画タイプのもの
                 for k, feat_info in output_dataset.features.items():
                     if k in frame_data and feat_info["dtype"] in ["image", "video"]:
                         arr = frame_data[k]
                         if isinstance(arr, np.ndarray) and arr.ndim == 3 and arr.shape[0] == 3:
-                            # (3, H, W) -> (H, W, 3) assumption
-                            # H, W check?
-                            # shape mismatch error said: '(3, 224, 224)' does not have expected shape '(224, 224, 3)'
                             frame_data[k] = arr.transpose(1, 2, 0)
-
-                # Sound Processing Preparation
                 src_sound0 = frame_data.get("observation.images.sound0")
                 src_sound1 = frame_data.get("observation.images.sound1")
                 src_spec = frame_data.get("observation.images.spec")
-                
-                # ... (rest of processing uses frame_data in place) ...
-                
                 if src_sound0 is None:
-                     pass
-
-                # 更新判定
+                    pass
                 should_update = (self.frame_count % self.update_interval == 0)
                 self.frame_count += 1
-                
                 if should_update or self.cached_sound_map0 is None:
-                    # 加工計算
                     if self.config.mic_array_num == 0:
                         h, w = self.config.observation_height, self.config.observation_width
                         sound_map0 = np.zeros((h, w, 3), dtype=np.uint8)
@@ -381,8 +287,9 @@ class DatasetProcessor:
         return output_name
 
 if __name__ == "__main__":
-    input_path = "datasets/sound-m3-f30-s2-p0_0"
-    target_list = ["sound-m3-f10-s2-p1", "sound-m3-f10-s2-p2", "sound-m3-f10-s2-p3", "sound-m3-f10-s2-p4"]
+    input_path = "datasets/sound-m3-f30-s2-p0_1"
+    target_list = ["sound-m3-f10-s2-p4"]
+    # target_list = ["sound-m3-f15-s2-p0", "sound-m3-f10-s2-p0", "sound-m3-f5-s2-p0", "sound-m3-f3-s2-p0", "sound-m3-f1-s2-p0", "sound-m3-f10-s2-p1", "sound-m3-f10-s2-p2", "sound-m3-f10-s2-p3", "sound-m3-f10-s2-p4"]
 
     for target in target_list:
         processor = DatasetProcessor(input_path, target)

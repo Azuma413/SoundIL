@@ -251,10 +251,18 @@ def main(training_name, observation_height, observation_width, episode_num, show
 if __name__ == "__main__":
     # 評価したい学習済みモデルの名前を指定
     # outputs/train/<training_name>/checkpoints/<checkpoint_step>
-    training_name_list = ["diffusion_sound-m3-f30-s2-p0_0"]
+    training_name_list = [
+        "act_sound-m3-f10-s2-p1_0",
+        "act_sound-m3-f10-s2-p2_0",
+        "act_sound-m3-f10-s2-p3_0",
+        "act_sound-m3-f10-s2-p4_0",
+        "act_sound-m4-f10-s2-p0_0",
+        "act_sound-m5-f10-s2-p0_0",
+        "act_sound-m6-f10-s2-p0_0",
+    ]
 
     for training_name in training_name_list:
-        checkpoint_step = "0180000"
+        checkpoint_step = "100000"
         main(
             training_name=training_name,
             observation_height=224,
