@@ -28,11 +28,12 @@
 - CUDA対応のNvidia GPU
 ### 環境のセットアップ
 ```bash
-git clone --recurse-submodules https://github.com/Azuma413/SoundIL.git
+git clone -b dev/sound --recurse-submodules https://github.com/Azuma413/SoundIL.git
 cd SoundIL
 uv sync
 uv pip install -e "Genesis"
 uv pip install -e "lerobot/[smolvla, pi]"
+# Linuxなら多分下はやらなくて良い
 uv pip uninstall torch torchvision
 uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 ```
