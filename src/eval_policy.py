@@ -5,6 +5,7 @@ import torch
 from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
 from lerobot.policies.act.modeling_act import ACTPolicy
 from lerobot.policies.pi0.modeling_pi0 import PI0Policy
+from lerobot.policies.vqbet.modeling_vqbet import VQBeTPolicy
 from lerobot.policies.factory import make_pre_post_processors
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.utils.control_utils import predict_action
@@ -73,6 +74,8 @@ def main(training_name, observation_height, observation_width, episode_num, show
         policy = ACTPolicy.from_pretrained(pretrained_policy_path)
     elif model_type == "pi0":
         policy = PI0Policy.from_pretrained(pretrained_policy_path)
+    elif model_type == "vqbet":
+        policy = VQBeTPolicy.from_pretrained(pretrained_policy_path)
     else:
         print(f"Error: Unknown model type: {model_type}")
         return
@@ -252,13 +255,8 @@ if __name__ == "__main__":
     # 評価したい学習済みモデルの名前を指定
     # outputs/train/<training_name>/checkpoints/<checkpoint_step>
     training_name_list = [
-        "act_sound-m3-f10-s2-p1_0",
-        "act_sound-m3-f10-s2-p2_0",
-        "act_sound-m3-f10-s2-p3_0",
-        "act_sound-m3-f10-s2-p4_0",
-        "act_sound-m4-f10-s2-p0_0",
-        "act_sound-m5-f10-s2-p0_0",
-        "act_sound-m6-f10-s2-p0_0",
+        "vqbet_sound-m4-f10-s2-p0_1",
+        "vqbet_sound-m4-f10-s2-p0_2",
     ]
 
     for training_name in training_name_list:

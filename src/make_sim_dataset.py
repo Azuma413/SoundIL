@@ -226,10 +226,10 @@ if __name__ == "__main__":
     # 新フォーマット例: soundShake-m4-f6-s2-p4
     
     task_candidates = [
-        "sound-m3-f30-s2-p0",
+        # "sound-m3-f30-s2-p0",
         "sound-m4-f10-s2-p0",
-        "sound-m5-f10-s2-p0",
-        "sound-m6-f10-s2-p0",
+        # "sound-m5-f10-s2-p0",
+        # "sound-m6-f10-s2-p0",
         # "normal",
     ]
     

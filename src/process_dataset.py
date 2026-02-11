@@ -287,8 +287,8 @@ class DatasetProcessor:
         return output_name
 
 if __name__ == "__main__":
-    input_path = "datasets/sound-m3-f30-s2-p0_1"
-    target_list = ["sound-m3-f10-s2-p4"]
+    input_path = "datasets/sound-m4-f10-s2-p0_2"
+    target_list = ["sound-m4-f10-s0-p0", "sound-m4-f10-s1-p0"]
     # target_list = ["sound-m3-f15-s2-p0", "sound-m3-f10-s2-p0", "sound-m3-f5-s2-p0", "sound-m3-f3-s2-p0", "sound-m3-f1-s2-p0", "sound-m3-f10-s2-p1", "sound-m3-f10-s2-p2", "sound-m3-f10-s2-p3", "sound-m3-f10-s2-p4"]
 
     for target in target_list:
