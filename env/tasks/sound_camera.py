@@ -56,12 +56,17 @@ class SoundConfig:
     update_freq: int = 5 # update_freq回呼び出されるごとに情報を更新
     # Shake mode
     shake_mode: bool = False
-    velocity_threshold: float = 0.01
+    velocity_threshold: float = 0.0005
+    # Sound All mode
+    sound_all_mode: bool = False
+    sound_all_moving_audio_path: Optional[str] = None  # 移動時に切り替える音源ファイルのパス
 
 class SoundCamera:
     """音響シミュレーションとSoundMap生成を行うカメラクラス"""
     
     def __init__(self, target, config: SoundConfig):
+        self._target = None
+        self.elapsed_time = 0.0
         self.target = target
         self.config = config
         self.frames = []
@@ -94,10 +99,31 @@ class SoundCamera:
         self.signal_buffer = np.zeros(self.required_length, dtype=np.float32)
         self.audio_cursor = 0
         
-        # 速度履歴 (shake_mode用)
+        # 速度履歴 (shake_mode/sound_all_mode用)
         # (velocity, num_samples) のリスト
         self.velocity_history = []
+        
+        # sound_all_mode用：移動時の音源信号
+        self.moving_audio_signal = None
+        self.moving_audio_cursor = 0
+        if config.sound_all_mode and config.sound_all_moving_audio_path is not None:
+            self._load_moving_audio_file(config.sound_all_moving_audio_path)
     
+    @property
+    def target(self):
+        return self._target
+    
+    @target.setter
+    def target(self, val):
+        self._target = val
+        self.reset_state()
+    
+    def reset_state(self):
+        self.prev_pos = None
+        self.prev_time = None
+        self.velocity_history = []
+        self.elapsed_time = 0.0
+
     def get_target_velocity(self) -> float:
         """ターゲットの速度を計算"""
         current_pos = self.target.get_pos()
@@ -136,6 +162,23 @@ class SoundCamera:
             signal = signal / np.abs(signal).max()
         self.audio_signal = signal
 
+    def _load_moving_audio_file(self, audio_file_path: str):
+        """移動時の音声ファイルを読み込む（sound_all_mode用）"""
+        format = audio_file_path.split(".")[-1]
+        sound = AudioSegment.from_file(audio_file_path, format=format)
+        sound = sound.set_frame_rate(self.config.fs).set_channels(1)
+        signal = np.array(sound.get_array_of_samples())
+        if signal.dtype != np.float32:
+            signal = signal.astype(np.float32)
+        if np.abs(signal).max() > 0:
+            signal = signal / np.abs(signal).max()
+        self.moving_audio_signal = signal
+
+    def set_moving_audio(self, audio_file_path: str):
+        """移動時の音源を動的に変更する（sound_all_mode用）"""
+        self._load_moving_audio_file(audio_file_path)
+        self.moving_audio_cursor = 0
+
     def _get_audio_chunk(self, n_samples: int) -> np.ndarray:
         """音声ファイルから指定サンプル数を取得（ループ再生）"""
         if self.audio_signal is None:
@@ -159,6 +202,7 @@ class SoundCamera:
 
     def _update_state(self, dt: float, velocity: float):
         """状態更新（信号バッファと速度履歴）"""
+        self.elapsed_time += dt
         # 経過時間分のサンプル数
         n_samples = int(dt * self.config.fs)
         if n_samples == 0:
@@ -228,22 +272,56 @@ class SoundCamera:
         if self.config.shake_mode:
             # マスク作成
             mask = np.zeros_like(signal_to_process)
-            current_idx = 0
-            for v, s in self.velocity_history:
-                if current_idx >= len(mask):
-                    break
-                end_idx = min(current_idx + s, len(mask))
-                if v >= self.config.velocity_threshold:
-                    mask[current_idx:end_idx] = 1.0
-                else:
-                    mask[current_idx:end_idx] = 0.0
-                current_idx = end_idx
+            silent_time = 2.0
+            if self.elapsed_time >= silent_time:
+                current_idx = 0
+                for v, s in self.velocity_history:
+                    if current_idx >= len(mask):
+                        break
+                    end_idx = min(current_idx + s, len(mask))
+                    if v >= self.config.velocity_threshold:
+                        mask[current_idx:end_idx] = 1.0
+                    else:
+                        mask[current_idx:end_idx] = 0.0
+                    current_idx = end_idx
             
             signal_to_process *= mask
             
             if np.all(signal_to_process == 0):
                 signal_to_process += np.random.randn(*signal_to_process.shape) * 1e-5
                 zero_flag = True
+        elif self.config.sound_all_mode and self.moving_audio_signal is not None:
+            # sound_all_mode: 速度に応じて静止時(音A)と移動時(音B/C)を切り替え
+            # 移動時の音源チャンクを生成
+            moving_chunk = np.zeros_like(signal_to_process)
+            n_total = len(moving_chunk)
+            cursor = self.moving_audio_cursor
+            total_len = len(self.moving_audio_signal)
+            idx = 0
+            while idx < n_total:
+                remaining = n_total - idx
+                available = total_len - cursor
+                take = min(remaining, available)
+                moving_chunk[idx:idx+take] = self.moving_audio_signal[cursor:cursor+take]
+                cursor = (cursor + take) % total_len
+                idx += take
+            
+            # 速度に基づくブレンド：移動中は移動時音源、静止時は元の音源
+            # 開始直後のsilent_time中は音を切り替えない
+            blend_mask = np.zeros(n_total, dtype=np.float32)
+            silent_time = 2.0
+            if self.elapsed_time >= silent_time:
+                current_idx = 0
+                for v, s in self.velocity_history:
+                    if current_idx >= n_total:
+                        break
+                    end_idx = min(current_idx + s, n_total)
+                    if v >= self.config.velocity_threshold:
+                        blend_mask[current_idx:end_idx] = 1.0
+                    current_idx = end_idx
+            
+            # 移動部分は移動時音源、静止部分は元の音源
+            signal_to_process = signal_to_process * (1.0 - blend_mask) + moving_chunk * blend_mask
         signal_for_simulation = signal_to_process[::-1]
         if not should_update and self.cached_sound_map0 is not None:
             return self.cached_sound_map0, self.cached_sound_map1, self.cached_spectrogram

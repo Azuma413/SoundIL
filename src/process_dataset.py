@@ -23,7 +23,7 @@ class DatasetProcessor:
         
         # LeRobotDatasetの読み込み (ローカル)
         repo_id = f"local/{self.input_path.name}"
-        self.dataset = LeRobotDataset(repo_id, root=self.input_path)
+        self.dataset = LeRobotDataset(repo_id, root=self.input_path, video_backend="pyav")
         
         # 時間的平滑化用の過去フレーム
         self.past_frame = None
