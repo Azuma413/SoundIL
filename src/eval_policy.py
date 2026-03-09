@@ -255,17 +255,21 @@ if __name__ == "__main__":
     # 評価したい学習済みモデルの名前を指定
     # outputs/train/<training_name>/checkpoints/<checkpoint_step>
     training_name_list = [
-        "vqbet_sound-m4-f10-s2-p0_1",
-        "vqbet_sound-m4-f10-s2-p0_2",
+        # "act_normal-fix_0",
+        "diffusion_normal-fix_0",
+        "vqbet_normal-fix_0",
+        # "vqbet_sound-m4-f10-s2-p0_2",
     ]
 
+    eval_step_list = ["560000", "520000", "480000", "440000", "400000", "360000", "320000", "280000", "240000", "200000", "160000", "120000", "080000", "040000"]
+
     for training_name in training_name_list:
-        checkpoint_step = "100000"
-        main(
-            training_name=training_name,
-            observation_height=224,
-            observation_width=224,
-            episode_num=100,
-            show_viewer=False,
-            checkpoint_step=checkpoint_step,
-        )
+        for checkpoint_step in eval_step_list:
+            main(
+                training_name=training_name,
+                observation_height=224,
+                observation_width=224,
+                episode_num=100,
+                show_viewer=False,
+                checkpoint_step=checkpoint_step,
+            )
