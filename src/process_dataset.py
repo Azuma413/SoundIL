@@ -220,7 +220,7 @@ class DatasetProcessor:
                 for sk in system_keys:
                     if sk in frame_data:
                         del frame_data[sk]
-                for k, feat_info in output_dataset.features.items():
+                for k, feat_info in self.dataset.features.items():
                     if k in frame_data and feat_info["dtype"] in ["image", "video"]:
                         arr = frame_data[k]
                         if isinstance(arr, np.ndarray) and arr.ndim == 3 and arr.shape[0] == 3:
@@ -305,9 +305,48 @@ class DatasetProcessor:
         return output_name
 
 if __name__ == "__main__":
-    input_path = "datasets/sound-m4-f10-s2-p0_2"
-    target_list = ["sound-m4-f10-s0-p0", "sound-m4-f10-s1-p0"]
-    # target_list = ["sound-m3-f15-s2-p0", "sound-m3-f10-s2-p0", "sound-m3-f5-s2-p0", "sound-m3-f3-s2-p0", "sound-m3-f1-s2-p0", "sound-m3-f10-s2-p1", "sound-m3-f10-s2-p2", "sound-m3-f10-s2-p3", "sound-m3-f10-s2-p4"]
+    input_path = "datasets/soundDiff-m4-f10-s2-p0_0"
+    target_list = ["soundDiff-m4-f10-s0-p0", "soundDiff-m4-f10-s3-p0"]
+
+    for target in target_list:
+        processor = DatasetProcessor(input_path, target)
+        out_path = processor.process()
+        print(f"Dataset processing complete. Saved to {out_path}")
+
+    input_path = "datasets/soundDiff-m4-f10-s2-p0_1"
+    target_list = ["soundDiff-m4-f10-s0-p0", "soundDiff-m4-f10-s3-p0"]
+
+    for target in target_list:
+        processor = DatasetProcessor(input_path, target)
+        out_path = processor.process()
+        print(f"Dataset processing complete. Saved to {out_path}")
+
+    input_path = "datasets/soundDiff-m4-f10-s2-p0_2"
+    target_list = ["soundDiff-m4-f10-s0-p0", "soundDiff-m4-f10-s3-p0"]
+
+    for target in target_list:
+        processor = DatasetProcessor(input_path, target)
+        out_path = processor.process()
+        print(f"Dataset processing complete. Saved to {out_path}")
+
+    input_path = "datasets/soundShake-m4-f10-s2-p0_0"
+    target_list = ["soundShake-m4-f10-s0-p0"]
+
+    for target in target_list:
+        processor = DatasetProcessor(input_path, target)
+        out_path = processor.process()
+        print(f"Dataset processing complete. Saved to {out_path}")
+
+    input_path = "datasets/soundShake-m4-f10-s2-p0_1"
+    target_list = ["soundShake-m4-f10-s0-p0"]
+
+    for target in target_list:
+        processor = DatasetProcessor(input_path, target)
+        out_path = processor.process()
+        print(f"Dataset processing complete. Saved to {out_path}")
+
+    input_path = "datasets/soundShake-m4-f10-s2-p0_2"
+    target_list = ["soundShake-m4-f10-s0-p0"]
 
     for target in target_list:
         processor = DatasetProcessor(input_path, target)

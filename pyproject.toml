@@ -17,5 +17,5 @@ dependencies = [
     "sounddevice>=0.5.1",
     "taichi>=1.7.3",
     "torchcodec>=0.4.0",
-    "transformers>=4.51.3",
+    "transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi",
 ]

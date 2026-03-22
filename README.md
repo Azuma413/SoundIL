@@ -32,10 +32,15 @@ git clone -b dev/sound --recurse-submodules https://github.com/Azuma413/SoundIL.
 cd SoundIL
 uv sync
 uv pip install -e "Genesis"
-uv pip install -e "lerobot/[smolvla, pi]"
+# piが採用しているtransformersはカスタムされているので，他のオプションとは両立しないかも
+uv pip install -e "lerobot/[pi]"
 # Linuxなら多分下はやらなくて良い
 uv pip uninstall torch torchvision
-uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+```
+- huggingfaceへのログイン
+```bash
+uv run huggingface-cli login
 ```
 - ffmpegのインストール
 ```bash
