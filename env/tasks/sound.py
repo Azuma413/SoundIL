@@ -94,17 +94,19 @@ class SoundTask(NormalTask):
                 shape=(self.observation_height, self.observation_width, 3),
                 dtype=np.uint8
             ),
-            "observation.images.sound0": spaces.Box(
-                low=0, high=255,
-                shape=(self.observation_height, self.observation_width, 3),
-                dtype=np.uint8
-            ),
-            "observation.images.sound1": spaces.Box(
-                low=0, high=255,
-                shape=(self.observation_height, self.observation_width, 3),
-                dtype=np.uint8
-            ),
         }
+        
+        if self.sound_config.use_soundmap:
+            obs_space_dict["observation.images.sound0"] = spaces.Box(
+                low=0, high=255,
+                shape=(self.observation_height, self.observation_width, 3),
+                dtype=np.uint8
+            )
+            obs_space_dict["observation.images.sound1"] = spaces.Box(
+                low=0, high=255,
+                shape=(self.observation_height, self.observation_width, 3),
+                dtype=np.uint8
+            )
         
         # use_spectrogramがTrueの場合、specを追加（3チャンネル）
         if self.sound_config.use_spectrogram:
@@ -216,13 +218,14 @@ class SoundTask(NormalTask):
         sound_map0, sound_map1, spectrogram = self.sound_cam.render()
         
         # sound0とsound1を格納（両方とも3チャンネル）
-        assert sound_map0.ndim == 3 and sound_map0.shape[2] == 3, \
-            f"sound_map0 shape {sound_map0.shape} is not (H, W, 3)"
-        assert sound_map1.ndim == 3 and sound_map1.shape[2] == 3, \
-            f"sound_map1 shape {sound_map1.shape} is not (H, W, 3)"
-        
-        obs["observation.images.sound0"] = sound_map0
-        obs["observation.images.sound1"] = sound_map1
+        if self.sound_config.use_soundmap:
+            assert sound_map0.ndim == 3 and sound_map0.shape[2] == 3, \
+                f"sound_map0 shape {sound_map0.shape} is not (H, W, 3)"
+            assert sound_map1.ndim == 3 and sound_map1.shape[2] == 3, \
+                f"sound_map1 shape {sound_map1.shape} is not (H, W, 3)"
+            
+            obs["observation.images.sound0"] = sound_map0
+            obs["observation.images.sound1"] = sound_map1
         
         # use_spectrogramがTrueの場合、specを追加（3チャンネル）
         if self.sound_config.use_spectrogram:
@@ -272,12 +275,17 @@ if __name__ == "__main__":
         update_freq = max(1, int(30 / f))
         # s: sound info
         use_spectrogram = False
+        use_soundmap = True
         if s == 0:
             mic_array_num = 0 # 音情報なし
+            use_soundmap = False
         elif s == 1:
             use_spectrogram = False
         elif s == 2:
             use_spectrogram = True
+        elif s == 3:
+            use_spectrogram = True
+            use_soundmap = False
         # p: processing
         use_gaussian_filter = False
         use_temporal_smoothing = False
@@ -295,6 +303,7 @@ if __name__ == "__main__":
             mic_array_num=mic_array_num,
             update_freq=update_freq,
             use_spectrogram=use_spectrogram,
+            use_soundmap=use_soundmap,
             use_gaussian_filter=use_gaussian_filter,
             use_temporal_smoothing=use_temporal_smoothing,
             use_feature=use_feature,

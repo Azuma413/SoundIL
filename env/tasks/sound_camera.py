@@ -37,6 +37,7 @@ class SoundConfig:
     beamform_normalize: bool = True # ビームフォーミング出力の正規化
     # スペクトログラム関連
     use_spectrogram: bool = False # スペクトログラムを返すか
+    use_soundmap: bool = True # 音環境マップ（sound0, sound1）を返すか
     nmf_components: int = 50 # NMFの成分数
     nmf_threshold: float = 1.6e-3 # NMFマスクの閾値
     # 画像処理オプション

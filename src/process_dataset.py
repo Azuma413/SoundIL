@@ -56,12 +56,18 @@ class DatasetProcessor:
             update_freq = max(1, int(30 / f))
             
             use_spectrogram = False
+            use_soundmap = True
             if s == 0:
                 mic_array_num = 0
+                use_soundmap = False
             elif s == 1:
                 use_spectrogram = False
             elif s == 2:
                 use_spectrogram = True
+            elif s == 3:
+                use_spectrogram = True
+                use_soundmap = False
+                
                 
             use_gaussian_filter = False
             use_temporal_smoothing = False
@@ -82,6 +88,7 @@ class DatasetProcessor:
                 mic_array_num=mic_array_num,
                 update_freq=update_freq,
                 use_spectrogram=use_spectrogram,
+                use_soundmap=use_soundmap,
                 use_gaussian_filter=use_gaussian_filter,
                 use_temporal_smoothing=use_temporal_smoothing,
                 use_feature=use_feature,
@@ -168,6 +175,11 @@ class DatasetProcessor:
         if not self.config.use_spectrogram:
             if "observation.images.spec" in features:
                 del features["observation.images.spec"]
+        if hasattr(self.config, "use_soundmap") and not self.config.use_soundmap:
+            if "observation.images.sound0" in features:
+                del features["observation.images.sound0"]
+            if "observation.images.sound1" in features:
+                del features["observation.images.sound1"]
         output_dataset = LeRobotDataset.create(
             repo_id=None,
             fps=30,
@@ -262,8 +274,14 @@ class DatasetProcessor:
                     spectrogram = self.cached_spectrogram
                 
                 # Ensure outputs are updated in frame_data
-                frame_data["observation.images.sound0"] = sound_map0
-                frame_data["observation.images.sound1"] = sound_map1
+                if hasattr(self.config, "use_soundmap") and not self.config.use_soundmap:
+                    if "observation.images.sound0" in frame_data:
+                        del frame_data["observation.images.sound0"]
+                    if "observation.images.sound1" in frame_data:
+                        del frame_data["observation.images.sound1"]
+                else:
+                    frame_data["observation.images.sound0"] = sound_map0
+                    frame_data["observation.images.sound1"] = sound_map1
                 
                 if self.config.use_spectrogram and spectrogram is not None:
                     frame_data["observation.images.spec"] = spectrogram

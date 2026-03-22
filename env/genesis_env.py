@@ -118,12 +118,17 @@ class GenesisEnv(gym.Env):
                     
                     # s: sound info
                     use_spectrogram = False
+                    use_soundmap = True
                     if s == 0:
                         mic_array_num = 0 # 音情報なし
+                        use_soundmap = False
                     elif s == 1:
                         use_spectrogram = False
                     elif s == 2:
                         use_spectrogram = True
+                    elif s == 3:
+                        use_spectrogram = True
+                        use_soundmap = False
                         
                     # p: processing
                     use_gaussian_filter = False
@@ -144,6 +149,7 @@ class GenesisEnv(gym.Env):
                         mic_array_num=mic_array_num,
                         update_freq=update_freq,
                         use_spectrogram=use_spectrogram,
+                        use_soundmap=use_soundmap,
                         use_gaussian_filter=use_gaussian_filter,
                         use_temporal_smoothing=use_temporal_smoothing,
                         use_feature=use_feature,

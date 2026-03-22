@@ -233,8 +233,8 @@ if __name__ == "__main__":
     
     task_candidates = [
         # "soundAll-m4-f30-s2-p0",
-        # "sound-m3-f30-s2-p0",
-        "normal-fix",
+        "sound-m3-f30-s3-p0",
+        # "normal-fix",
     ]
     
     for task in task_candidates:
@@ -251,7 +251,7 @@ if __name__ == "__main__":
         # GenesisEnv内で解析されるため、sound_configはNoneで渡す
         sound_config = None 
         
-        main(episode_num=100, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
+        main(episode_num=2, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
 
 
 # normal: 音は関係なく，赤，青，緑のCubeから指定された色のCubeを箱に入れるタスク
@@ -263,5 +263,5 @@ if __name__ == "__main__":
 
 # m: マイクロフォンアレイ数 3-6
 # f: 更新頻度 Hz
-# s: 0-音情報なし 1-音環境マップ 2-音環境マップ+スペクトログラム
+# s: 0-音情報なし 1-視覚+音環境マップ 2-視覚+音環境マップ+スペクトログラム 3-視覚+スペクトログラム
 # p: 0-そのまま 1-ガウシアンフィルタ 2-時間平滑 3-ガウシアン+時間平滑 4-特徴量変換

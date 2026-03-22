@@ -256,12 +256,12 @@ if __name__ == "__main__":
     # outputs/train/<training_name>/checkpoints/<checkpoint_step>
     training_name_list = [
         # "act_normal-fix_0",
-        # "diffusion_normal-fix_0",
-        "vqbet_normal-fix_0",
+        "diffusion_normal-fix_0",
+        # "vqbet_normal-fix_0",
         # "vqbet_sound-m4-f10-s2-p0_2",
     ]
 
-    eval_step_list = ["520000", "480000", "440000", "400000", "360000", "320000", "280000", "240000", "200000", "160000", "120000", "080000", "040000"]
+    eval_step_list = ["560000", "520000", "480000", "440000", "400000", "360000", "320000", "280000", "240000", "200000", "160000", "120000", "080000", "040000"]
     # eval_step_list = ["560000"]
 
     for training_name in training_name_list:
