@@ -124,9 +124,11 @@ class NormalTask:
         })
 
     def set_random_state(self, target, x_range, y_range, z):
-        x = np.random.uniform(x_range[0], x_range[1])
-        y = np.random.uniform(y_range[0], y_range[1])
-        z = z
+        while True:
+            x = np.random.uniform(x_range[0], x_range[1])
+            y = np.random.uniform(y_range[0], y_range[1])
+            if self.compute_reward(custom_pos=np.array([x, y, z])) == 0.0:
+                break
         pos_tensor = torch.tensor([x, y, z], dtype=torch.float32, device=gs.device)
         quat_tensor = torch.tensor([0, 0, 0, 1], dtype=torch.float32, device=gs.device)
         target.set_pos(pos_tensor)
@@ -154,23 +156,14 @@ class NormalTask:
         # CubeR
         if self.num_cubes >= 1:
             self.set_random_state(self.cubeR, (0.3, 0.7), (-0.3, 0.3), 0.04)
-            while self.compute_reward(target="cubeR") == 1.0:
-                print("CubeR is in the box, resetting position...")
-                self.set_random_state(self.cubeR, (0.3, 0.7), (-0.3, 0.3), 0.04)
         
         # CubeG
         if self.num_cubes >= 2:
             self.set_random_state(self.cubeG, (0.3, 0.7), (-0.3, 0.3), 0.04)
-            while self.compute_reward(target="cubeG") == 1.0:
-                print("CubeG is in the box, resetting position...")
-                self.set_random_state(self.cubeG, (0.3, 0.7), (-0.3, 0.3), 0.04)
         
         # CubeB
         if self.num_cubes >= 3:
             self.set_random_state(self.cubeB, (0.3, 0.7), (-0.3, 0.3), 0.04)
-            while self.compute_reward(target="cubeB") == 1.0:
-                print("CubeB is in the box, resetting position...")
-                self.set_random_state(self.cubeB, (0.3, 0.7), (-0.3, 0.3), 0.04)
         qpos = np.array([0.0, -0.4, 0.0, -2.2, 0.0, 2.0, 0.8, 0.04, 0.04])
         qpos_tensor = torch.tensor(qpos, dtype=torch.float32, device=gs.device)
         self.franka.set_dofs_kp(
@@ -211,9 +204,11 @@ class NormalTask:
         info = {}
         return obs, reward, terminated, truncated, info
 
-    def compute_reward(self, target=None, target_box=None):
+    def compute_reward(self, target=None, target_box=None, custom_pos=None):
         # CubeがBoxの中にあるかどうかを判定
-        if target is not None:
+        if custom_pos is not None:
+            pos = custom_pos
+        elif target is not None:
             if target == "cubeR":
                 pos = self.cubeR.get_pos().cpu().numpy()
             elif target == "cubeG":

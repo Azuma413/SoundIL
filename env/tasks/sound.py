@@ -195,19 +195,19 @@ class SoundTask(NormalTask):
         
         return obs, info
     
-    def compute_reward(self, target=None):
+    def compute_reward(self, target=None, target_box=None, custom_pos=None):
         if self.task_type == "soundDiff":
             # 指定された箱に入っているかチェック
-            return super().compute_reward(target="cubeR", target_box=self.target_box)
+            return super().compute_reward(target="cubeR", target_box=self.target_box, custom_pos=custom_pos)
         elif self.task_type == "soundAll":
             # ターゲットキューブが指定された箱に入っているかチェック
-            return super().compute_reward(target=self.target_cube_name, target_box=self.target_box)
+            return super().compute_reward(target=self.target_cube_name, target_box=self.target_box, custom_pos=custom_pos)
         else:
             # sound, soundShakeの場合は、ターゲットのCubeが（任意の）箱に入っているかチェック
             # NormalTask.compute_rewardはtargetを指定するとそのCubeが箱に入っているかチェックする
             # target_box=Noneならどちらの箱でもOK（NormalTaskの修正による）
             actual_target = target if target is not None else self.target_cube_name
-            return super().compute_reward(target=actual_target)
+            return super().compute_reward(target=actual_target, target_box=target_box, custom_pos=custom_pos)
     
     def get_obs(self):
         """
