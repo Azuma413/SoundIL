@@ -255,8 +255,8 @@ if __name__ == "__main__":
     # 評価したい学習済みモデルの名前を指定
     # outputs/train/<training_name>/checkpoints/<checkpoint_step>
     training_name_list = [
-        # "act_normal-fix_0",
-        "diffusion_normal-fix_0",
+        "act_normal-fix_0",
+        # "diffusion_normal-fix_0",
         # "vqbet_normal-fix_0",
         # "vqbet_sound-m4-f10-s2-p0_2",
     ]
