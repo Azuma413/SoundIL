@@ -1,3 +1,7 @@
+import os
+# setting for swan/swift
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
 from pathlib import Path
 import imageio
 import numpy as np
@@ -12,7 +16,6 @@ from lerobot.utils.control_utils import predict_action
 from lerobot.datasets.utils import build_dataset_frame
 from lerobot.utils.constants import OBS_STR
 from lerobot.utils.utils import get_safe_torch_device
-import os
 import sys
 import time
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
