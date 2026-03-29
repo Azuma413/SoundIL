@@ -60,6 +60,21 @@ def combine_frames(np_obs, observation_height, observation_width):
     combined_frame[observation_height:combined_h, observation_width:combined_w] = sound_video_img2
     return combined_frame
 
+def fill_missing_image_observations(converted_obs, dataset_features):
+    """Fill missing image inputs expected by the dataset with zero images."""
+    for key, feature in dataset_features.items():
+        if not key.startswith("observation.images."):
+            continue
+        if feature["dtype"] not in ["image", "video"]:
+            continue
+
+        short_key = key.removeprefix("observation.images.")
+        if short_key in converted_obs:
+            continue
+
+        shape = tuple(feature["shape"])
+        converted_obs[short_key] = np.zeros(shape, dtype=np.uint8)
+
 def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last"):
     output_directory = Path(f"outputs/eval/{training_name}_{checkpoint_step}")
     output_directory.mkdir(parents=True, exist_ok=True)
@@ -143,6 +158,11 @@ def main(training_name, observation_height, observation_width, episode_num, show
                                 converted_obs[name] = value[i]
                     else:
                         converted_obs[key] = value.copy() if isinstance(value, np.ndarray) else value
+
+                # Some evaluation environments intentionally omit sound images
+                # (e.g. s0 settings), while the training dataset schema may still
+                # expect them. Match training-time behavior by padding zeros.
+                fill_missing_image_observations(converted_obs, dataset.features)
                 
                 # Build observation frame in dataset format
                 observation_frame = build_dataset_frame(dataset.features, converted_obs, prefix=OBS_STR)
@@ -258,14 +278,19 @@ if __name__ == "__main__":
     # 評価したい学習済みモデルの名前を指定
     # outputs/train/<training_name>/checkpoints/<checkpoint_step>
     training_name_list = [
-        "act_normal-fix_0",
-        "act_normal-fix_2",
-        # "diffusion_normal-fix_0",
+        "vqbet_sound-m4-f10-s0-p0_0",
+        "vqbet_sound-m4-f10-s0-p0_1",
+        "vqbet_sound-m4-f10-s0-p0_2",
+        "vqbet_sound-m4-f10-s1-p0_0",
+        "vqbet_sound-m4-f10-s1-p0_1",
+        "vqbet_sound-m4-f10-s1-p0_2",
+        # "diffusion_normal-fix_1",
+        # "diffusion_normal-fix_2",
         # "vqbet_normal-fix_0",
         # "vqbet_sound-m4-f10-s2-p0_2",
     ]
 
-    eval_step_list = ["200000", "180000", "160000", "140000", "120000", "100000", "080000", "060000", "040000", "020000"]
+    eval_step_list = ["100000"]
 
     for training_name in training_name_list:
         for checkpoint_step in eval_step_list:
