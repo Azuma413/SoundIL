@@ -51,7 +51,7 @@ sudo apt install ffmpeg -y
 ## 学習の実行
 先にwandbにログインしてください．
 ```bash
-wandb login
+uv run wandb login
 ```
 POLICYはact, diffusion, vqbet, pi0のいずれかを指定します．
 ```bash
