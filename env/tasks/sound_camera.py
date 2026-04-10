@@ -577,7 +577,16 @@ class SoundCamera:
         split_H = np.array_split(H, M, axis=1)
         stacked_H = np.stack(split_H, axis=0)
         min_activations = np.min(stacked_H, axis=0)
-        binary_mask = (min_activations > threshold).astype(float) # これが B_i
+        # NMF の W/H はスケール不定なので、H の絶対値しきい値は入力レベルに強く依存する。
+        # 実録音のように振幅が小さい場合でも mask が全ゼロにならないよう、最大値で正規化して判定する。
+        max_activation = float(np.max(min_activations))
+        if max_activation > 0.0:
+            normalized_activations = min_activations / max_activation
+        else:
+            normalized_activations = min_activations
+        binary_mask = (normalized_activations > threshold).astype(float) # これが B_i
+        if not np.any(binary_mask) and max_activation > 0.0:
+            binary_mask = (normalized_activations >= np.max(normalized_activations)).astype(float)
         reconstructed_wavs = []
         for m in range(M):
             H_m = split_H[m]      # H_i^(m)

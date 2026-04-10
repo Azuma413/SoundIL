@@ -3,8 +3,12 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
+import tempfile
 import threading
 import time
+import warnings
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -15,19 +19,24 @@ import pyroomacoustics as pra
 import sounddevice as sd
 from pydub import AudioSegment
 from scipy.ndimage import gaussian_filter
-from scipy.signal import stft
+from scipy.signal import istft, stft
+from sklearn.decomposition import NMF
+from sklearn.exceptions import ConvergenceWarning
 
 from env.tasks.sound_camera import SoundCamera, SoundConfig
 
 
 SOUNDREAL_TASK_NAME = "soundReal-m4-f10-s2-p0"
+DEFAULT_SOUND_CONFIG = SoundConfig()
 
 OBSERVATION_HEIGHT = 224
 OBSERVATION_WIDTH = 224
 CAMERA_FPS = 30
 AUDIO_FPS = 10
 AUDIO_SAMPLE_RATE = 16000
-AUDIO_WINDOW_SECONDS = 1.0
+AUDIO_WINDOW_SECONDS = DEFAULT_SOUND_CONFIG.processing_time
+SPECTROGRAM_NFFT = DEFAULT_SOUND_CONFIG.nfft
+SPECTROGRAM_NUM_PEAKS = DEFAULT_SOUND_CONFIG.num_peaks
 DEFAULT_MIC_CHANNELS = 8
 
 RIGHT_ARM_FEATURE_NAMES = tuple(f"joint{i}" for i in range(1, 8))
@@ -83,6 +92,13 @@ MAP_SIZE_M = 1.4
 DOA_DISTANCE_FLOOR_M = 0.0
 DOA_DISTANCE_DECAY_EXPONENT = 0.0
 COMBINED_MAP_POWER = 4.0
+SOUNDDEVICE_CAPTURE_CHUNK_SECONDS = 0.02
+SOUNDDEVICE_CAPTURE_LATENCY = "low"
+SOUNDDEVICE_READ_TIMEOUT_S = 2.0
+REALTIME_NMF_INIT_MAX_ITER = 40
+REALTIME_NMF_WARM_MAX_ITER = 15
+REALTIME_NMF_TOL = 2e-2
+REALTIME_NMF_EPS = 1e-12
 
 SOUNDS_DIR = Path("sounds")
 SOUND_FILES = {
@@ -378,6 +394,153 @@ def build_rectangular_mic_positions(devices: list[tuple[int, dict]]) -> list[lis
         positions.append(by_hw[hw_index])
     return positions
 
+@dataclass
+class SoundDeviceStreamState:
+    device_id: int
+    device_name: str
+    stream: Optional[sd.InputStream]
+    chunks: deque[np.ndarray]
+    queued_frames: int
+    condition: threading.Condition
+    statuses: deque[str]
+    error: Optional[str]
+
+
+class ContinuousSoundDeviceCapture:
+    def __init__(
+        self,
+        devices: list[tuple[int, dict]],
+        samplerate: int,
+        channels: int,
+        chunk_frames: int,
+        read_timeout_s: float = SOUNDDEVICE_READ_TIMEOUT_S,
+    ):
+        self.devices = devices
+        self.samplerate = int(samplerate)
+        self.channels = int(channels)
+        self.chunk_frames = max(1, int(chunk_frames))
+        self.read_timeout_s = max(0.1, float(read_timeout_s))
+        self.streams: list[SoundDeviceStreamState] = []
+
+    def start(self) -> None:
+        if self.streams:
+            return
+        try:
+            for device_id, device in self.devices:
+                available_channels = int(device["max_input_channels"])
+                if available_channels < self.channels:
+                    raise RuntimeError(
+                        f"Device {device_id} has only {available_channels} input channels, but {self.channels} are required."
+                    )
+                condition = threading.Condition()
+                chunk_queue: deque[np.ndarray] = deque()
+                statuses: deque[str] = deque(maxlen=20)
+                state = SoundDeviceStreamState(
+                    device_id=device_id,
+                    device_name=str(device["name"]),
+                    stream=None,
+                    chunks=chunk_queue,
+                    queued_frames=0,
+                    condition=condition,
+                    statuses=statuses,
+                    error=None,
+                )
+                stream = sd.InputStream(
+                    device=device_id,
+                    samplerate=self.samplerate,
+                    channels=self.channels,
+                    dtype="float32",
+                    blocksize=self.chunk_frames,
+                    latency=SOUNDDEVICE_CAPTURE_LATENCY,
+                    callback=self._make_input_callback(state),
+                )
+                state.stream = stream
+                stream.start()
+                self.streams.append(state)
+        except Exception:
+            self.stop()
+            raise
+
+    def stop(self) -> None:
+        if not self.streams:
+            return
+        for state in self.streams:
+            with state.condition:
+                state.error = state.error or "capture stopped"
+                state.condition.notify_all()
+            try:
+                if state.stream is not None:
+                    state.stream.stop()
+            except Exception:
+                pass
+            if state.stream is not None:
+                state.stream.close()
+        self.streams.clear()
+
+    def read_chunk(self, num_frames: int) -> list[np.ndarray]:
+        if num_frames <= 0:
+            raise ValueError("num_frames must be positive")
+        if not self.streams:
+            raise RuntimeError("ContinuousSoundDeviceCapture is not started.")
+        return [self._read_stream_chunk(state, num_frames) for state in self.streams]
+
+    def _read_stream_chunk(self, state: SoundDeviceStreamState, num_frames: int) -> np.ndarray:
+        deadline = time.monotonic() + self.read_timeout_s + (num_frames / max(1, self.samplerate))
+        with state.condition:
+            while True:
+                if state.error is not None:
+                    raise RuntimeError(f"device {state.device_id}: {state.error}")
+                self._discard_stale_frames_locked(state, keep_frames=num_frames)
+                if state.queued_frames >= num_frames:
+                    break
+                remaining_timeout = deadline - time.monotonic()
+                if remaining_timeout <= 0:
+                    status_text = state.statuses[-1] if state.statuses else "timeout waiting for audio callback"
+                    raise TimeoutError(f"device {state.device_id}: {status_text}")
+                state.condition.wait(timeout=remaining_timeout)
+
+            pulled_chunks = []
+            remaining = num_frames
+            while remaining > 0:
+                chunk = state.chunks[0]
+                if chunk.shape[0] <= remaining:
+                    pulled_chunks.append(state.chunks.popleft())
+                    state.queued_frames -= chunk.shape[0]
+                    remaining -= chunk.shape[0]
+                else:
+                    pulled_chunks.append(chunk[:remaining].copy())
+                    state.chunks[0] = chunk[remaining:]
+                    state.queued_frames -= remaining
+                    remaining = 0
+            return np.concatenate(pulled_chunks, axis=0)
+
+    @staticmethod
+    def _make_input_callback(state: SoundDeviceStreamState):
+        def callback(indata, _frames, _time_info, status):
+            chunk = np.asarray(indata, dtype=np.float32).copy()
+            status_text = str(status) if status else None
+            with state.condition:
+                state.chunks.append(chunk)
+                state.queued_frames += chunk.shape[0]
+                if status_text:
+                    state.statuses.append(status_text)
+                state.condition.notify_all()
+
+        return callback
+
+    @staticmethod
+    def _discard_stale_frames_locked(state: SoundDeviceStreamState, keep_frames: int) -> None:
+        stale_frames = max(0, state.queued_frames - keep_frames)
+        while stale_frames > 0 and state.chunks:
+            chunk = state.chunks[0]
+            if chunk.shape[0] <= stale_frames:
+                state.chunks.popleft()
+                state.queued_frames -= chunk.shape[0]
+                stale_frames -= chunk.shape[0]
+            else:
+                state.chunks[0] = chunk[stale_frames:]
+                state.queued_frames -= stale_frames
+                stale_frames = 0
 
 def get_map_bounds() -> tuple[float, float, float, float]:
     half_map = MAP_SIZE_M / 2.0
@@ -507,129 +670,24 @@ def create_spectrogram_image_from_audio(sound_camera: SoundCamera, audio: np.nda
     return sound_camera._pad_to_3ch(image)
 
 
-class MultiDeviceAudioRingBuffer:
-    def __init__(
-        self,
-        devices: list[tuple[int, dict]],
-        samplerate: int = AUDIO_SAMPLE_RATE,
-        channels: int = DEFAULT_MIC_CHANNELS,
-        window_seconds: float = AUDIO_WINDOW_SECONDS,
-    ):
-        self.devices = devices
-        self.samplerate = samplerate
-        self.channels = channels
-        self.window_frames = int(round(window_seconds * samplerate))
-        self.streams: list[sd.InputStream] = []
-        self._lock = threading.Lock()
-        self._buffers = {
-            device_id: np.zeros((self.window_frames, channels), dtype=np.float32)
-            for device_id, _ in devices
-        }
-        self._write_positions = {device_id: 0 for device_id, _ in devices}
-        self._frame_counts = {device_id: 0 for device_id, _ in devices}
-        self._running = False
-
-    def _make_callback(self, device_id: int):
-        def callback(indata, frames, _time_info, status):
-            if status:
-                print(f"[soundreal] InputStream status on device {device_id}: {status}")
-            data = np.asarray(indata, dtype=np.float32)
-            if data.ndim == 1:
-                data = data[:, None]
-            if data.shape[1] < self.channels:
-                padded = np.zeros((data.shape[0], self.channels), dtype=np.float32)
-                padded[:, : data.shape[1]] = data
-                data = padded
-            elif data.shape[1] > self.channels:
-                data = data[:, : self.channels]
-
-            if data.shape[0] >= self.window_frames:
-                data = data[-self.window_frames :]
-
-            frames_to_write = data.shape[0]
-            with self._lock:
-                buffer = self._buffers[device_id]
-                write_pos = self._write_positions[device_id]
-                first = min(frames_to_write, self.window_frames - write_pos)
-                buffer[write_pos : write_pos + first] = data[:first]
-                remaining = frames_to_write - first
-                if remaining > 0:
-                    buffer[:remaining] = data[first:]
-                self._write_positions[device_id] = (write_pos + frames_to_write) % self.window_frames
-                self._frame_counts[device_id] = min(
-                    self.window_frames,
-                    self._frame_counts[device_id] + frames_to_write,
-                )
-
-        return callback
-
-    def start(self) -> None:
-        if self._running:
-            return
-        for device_id, device_info in self.devices:
-            available_channels = int(device_info["max_input_channels"])
-            if available_channels < self.channels:
-                raise RuntimeError(
-                    f"Device {device_id} has only {available_channels} input channels, but {self.channels} are required."
-                )
-            stream = sd.InputStream(
-                samplerate=self.samplerate,
-                channels=self.channels,
-                dtype="float32",
-                device=device_id,
-                callback=self._make_callback(device_id),
-                blocksize=0,
-            )
-            stream.start()
-            self.streams.append(stream)
-        self._running = True
-
-    def stop(self) -> None:
-        for stream in self.streams:
-            try:
-                stream.stop()
-            finally:
-                stream.close()
-        self.streams = []
-        self._running = False
-
-    def ready(self) -> bool:
-        with self._lock:
-            return all(frame_count >= self.window_frames for frame_count in self._frame_counts.values())
-
-    def snapshot(self) -> Optional[list[np.ndarray]]:
-        with self._lock:
-            if not all(frame_count >= self.window_frames for frame_count in self._frame_counts.values()):
-                return None
-
-            snapshots = []
-            for device_id, _ in self.devices:
-                buffer = self._buffers[device_id]
-                write_pos = self._write_positions[device_id]
-                ordered = np.concatenate([buffer[write_pos:], buffer[:write_pos]], axis=0)
-                snapshots.append(ordered.copy())
-            return snapshots
-
-
 class RealSoundObservationSource:
     def __init__(
         self,
         explicit_device_ids: list[int] | None = None,
         observation_height: int = OBSERVATION_HEIGHT,
         observation_width: int = OBSERVATION_WIDTH,
-        audio_fps: int = AUDIO_FPS,
     ):
         device_ids = explicit_device_ids or parse_device_ids_env("SOUNDREAL_DEVICE_IDS")
         self.devices = select_tamago_devices(device_ids)
-        self.audio_fps = audio_fps
+        self.audio_fps = AUDIO_FPS
         self.sound_camera = SoundCamera(
             target=DummyTarget(),
             config=SoundConfig(
                 mic_array_num=len(self.devices),
                 mics_per_array=DEFAULT_MIC_CHANNELS,
                 fs=AUDIO_SAMPLE_RATE,
-                nfft=512,
-                num_peaks=1,
+                nfft=SPECTROGRAM_NFFT,
+                num_peaks=SPECTROGRAM_NUM_PEAKS,
                 observation_height=observation_height,
                 observation_width=observation_width,
                 use_spectrogram=True,
@@ -639,22 +697,53 @@ class RealSoundObservationSource:
             ),
         )
         self.sound_camera.mic_positions = build_rectangular_mic_positions(self.devices)
-        self.capture = MultiDeviceAudioRingBuffer(
-            devices=self.devices,
-            samplerate=AUDIO_SAMPLE_RATE,
-            channels=DEFAULT_MIC_CHANNELS,
-            window_seconds=AUDIO_WINDOW_SECONDS,
-        )
+        self.array_centers = [
+            np.asarray(mic_position, dtype=np.float32) for mic_position in self.sound_camera.mic_positions
+        ]
+        self.array_relative_positions = []
+        for mic_center in self.sound_camera.mic_positions:
+            mic_array_abs = self.sound_camera._generate_circular_array(
+                mic_center,
+                self.sound_camera.config.mics_per_array,
+                self.sound_camera.config.mic_radius,
+            ).T.astype(np.float32, copy=False)
+            self.array_relative_positions.append(
+                mic_array_abs - np.mean(mic_array_abs, axis=0, keepdims=True)
+            )
+        self.processing_window_s = float(self.sound_camera.config.processing_time)
+        self.processing_period_s = 1.0 / self.audio_fps
+        self.capture_chunk_duration_s = min(self.processing_period_s, SOUNDDEVICE_CAPTURE_CHUNK_SECONDS)
+        self.processing_frames = max(1, int(round(self.processing_window_s * AUDIO_SAMPLE_RATE)))
+        self.capture_chunk_frames = max(1, int(round(self.capture_chunk_duration_s * AUDIO_SAMPLE_RATE)))
+        self.buffered_frames = 0
+        self.buffer_write_pos = 0
+        self.capture_sequence = 0
+        self._audio_buffers = [
+            np.zeros((self.processing_frames, DEFAULT_MIC_CHANNELS), dtype=np.float32)
+            for _ in self.devices
+        ]
+        self._audio_lock = threading.Lock()
         self._lock = threading.Lock()
+        self._capture_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._ready_event = threading.Event()
+        self._capture_thread: Optional[threading.Thread] = None
         self._update_thread: Optional[threading.Thread] = None
+        self._capture_session: Optional[ContinuousSoundDeviceCapture] = None
         self.start_monotonic: Optional[float] = None
+        self.latest_capture_monotonic: Optional[float] = None
+        self.latest_process_monotonic: Optional[float] = None
+        self._recent_capture_times: deque[float] = deque(maxlen=64)
+        self._recent_process_times: deque[float] = deque(maxlen=32)
         self.last_compute_duration_s = 0.0
         self.latest_update_monotonic: Optional[float] = None
+        self.process_count = 0
         self.update_count = 0
+        self.dropped_capture_count = 0
         self.late_cycle_count = 0
-        self.last_error: Optional[str] = None
+        self.last_capture_error: Optional[str] = None
+        self.last_process_error: Optional[str] = None
+        self._nmf_state: Optional[dict[str, np.ndarray | tuple[int, int]]] = None
         self.cached_images = {
             "sound0": np.zeros((observation_height, observation_width, 3), dtype=np.uint8),
             "sound1": np.zeros((observation_height, observation_width, 3), dtype=np.uint8),
@@ -664,18 +753,58 @@ class RealSoundObservationSource:
     def start(self) -> None:
         if self._update_thread and self._update_thread.is_alive():
             return
-        self.capture.start()
         self._stop_event.clear()
+        self._ready_event.clear()
+        with self._audio_lock:
+            self.buffered_frames = 0
+            self.buffer_write_pos = 0
+            self.capture_sequence = 0
+            self._audio_buffers = [
+                np.zeros((self.processing_frames, DEFAULT_MIC_CHANNELS), dtype=np.float32)
+                for _ in self.devices
+            ]
+        self.last_compute_duration_s = 0.0
+        self.latest_capture_monotonic = None
+        self.latest_process_monotonic = None
+        self._recent_capture_times.clear()
+        self._recent_process_times.clear()
+        self.latest_update_monotonic = None
+        self.process_count = 0
+        self.update_count = 0
+        self.dropped_capture_count = 0
+        self.late_cycle_count = 0
+        self.last_capture_error = None
+        self.last_process_error = None
+        self._nmf_state = None
+        for key, value in self.cached_images.items():
+            self.cached_images[key] = np.zeros_like(value)
         self.start_monotonic = time.perf_counter()
+        self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._update_thread = threading.Thread(target=self._update_loop, daemon=True)
+        self._capture_thread.start()
         self._update_thread.start()
+
+    @staticmethod
+    def _compute_recent_rate(timestamps: deque[float]) -> Optional[float]:
+        if len(timestamps) < 2:
+            return None
+        elapsed = timestamps[-1] - timestamps[0]
+        if elapsed <= 0.0:
+            return None
+        return (len(timestamps) - 1) / elapsed
+
+    def _get_last_error_locked(self) -> Optional[str]:
+        return self.last_process_error or self.last_capture_error
 
     def stop(self) -> None:
         self._stop_event.set()
+        self._stop_capture_session()
+        if self._capture_thread and self._capture_thread.is_alive():
+            self._capture_thread.join(timeout=2.0)
         if self._update_thread and self._update_thread.is_alive():
             self._update_thread.join(timeout=2.0)
+        self._capture_thread = None
         self._update_thread = None
-        self.capture.stop()
 
     def wait_until_ready(self, timeout_s: float = 2.0) -> bool:
         return self._ready_event.wait(timeout_s)
@@ -684,51 +813,339 @@ class RealSoundObservationSource:
         with self._lock:
             return {key: value.copy() for key, value in self.cached_images.items()}
 
-    def get_debug_status(self) -> dict[str, float | int | str | None]:
+    def get_latest_debug_snapshot(self) -> tuple[dict[str, np.ndarray], dict[str, float | int | str | None]]:
+        with self._audio_lock:
+            buffered_duration_s = self.buffered_frames / AUDIO_SAMPLE_RATE
         with self._lock:
             latest_age_s = None
-            if self.latest_update_monotonic is not None:
-                latest_age_s = max(0.0, time.perf_counter() - self.latest_update_monotonic)
-            effective_fps = None
-            if self.update_count > 0 and self.start_monotonic is not None and self.latest_update_monotonic is not None:
-                runtime_s = max(1e-6, self.latest_update_monotonic - self.start_monotonic)
-                effective_fps = self.update_count / runtime_s
-            return {
+            if self.latest_process_monotonic is not None:
+                latest_age_s = max(0.0, time.perf_counter() - self.latest_process_monotonic)
+            effective_fps = self._compute_recent_rate(self._recent_process_times)
+            images = {key: value.copy() for key, value in self.cached_images.items()}
+            status = {
+                "process_count": self.process_count,
                 "update_count": self.update_count,
+                "dropped_capture_count": self.dropped_capture_count,
+                "dropped_audio_s": self.dropped_capture_count * self.capture_chunk_duration_s,
                 "late_cycle_count": self.late_cycle_count,
                 "last_compute_duration_s": self.last_compute_duration_s,
                 "latest_age_s": latest_age_s,
                 "effective_fps": effective_fps,
-                "last_error": self.last_error,
+                "buffered_duration_s": buffered_duration_s,
+                "last_error": self._get_last_error_locked(),
+            }
+        return images, status
+
+    def get_debug_status(self) -> dict[str, float | int | str | None]:
+        with self._audio_lock:
+            buffered_duration_s = self.buffered_frames / AUDIO_SAMPLE_RATE
+        with self._lock:
+            latest_age_s = None
+            if self.latest_process_monotonic is not None:
+                latest_age_s = max(0.0, time.perf_counter() - self.latest_process_monotonic)
+            effective_fps = self._compute_recent_rate(self._recent_process_times)
+            return {
+                "process_count": self.process_count,
+                "update_count": self.update_count,
+                "dropped_capture_count": self.dropped_capture_count,
+                "dropped_audio_s": self.dropped_capture_count * self.capture_chunk_duration_s,
+                "late_cycle_count": self.late_cycle_count,
+                "last_compute_duration_s": self.last_compute_duration_s,
+                "latest_age_s": latest_age_s,
+                "effective_fps": effective_fps,
+                "buffered_duration_s": buffered_duration_s,
+                "last_error": self._get_last_error_locked(),
             }
 
-    def _update_loop(self) -> None:
-        period = 1.0 / self.audio_fps
+    def _capture_loop(self) -> None:
         while not self._stop_event.is_set():
-            loop_start = time.perf_counter()
-            snapshot = self.capture.snapshot()
-            if snapshot is not None:
-                try:
-                    self._update_from_snapshot(snapshot)
-                    elapsed = time.perf_counter() - loop_start
-                    with self._lock:
-                        self.last_compute_duration_s = elapsed
-                        self.latest_update_monotonic = time.perf_counter()
-                        self.update_count += 1
-                        if elapsed > period:
-                            self.late_cycle_count += 1
-                        self.last_error = None
-                    self._ready_event.set()
-                except Exception as exc:
-                    with self._lock:
-                        self.last_error = str(exc)
-                    print(f"[soundreal] Failed to update sound observations: {exc}")
-            elapsed = time.perf_counter() - loop_start
-            sleep_duration = period - elapsed
-            if sleep_duration > 0:
-                self._stop_event.wait(sleep_duration)
+            try:
+                capture_session = self._ensure_capture_session()
+                chunks = capture_session.read_chunk(self.capture_chunk_frames)
+                self._append_audio_chunks(chunks)
+                captured_now = time.perf_counter()
+                with self._lock:
+                    self.latest_capture_monotonic = captured_now
+                    self._recent_capture_times.append(captured_now)
+                    self.last_capture_error = None
+            except Exception as exc:
+                self._stop_capture_session()
+                with self._lock:
+                    self.last_capture_error = str(exc)
+                if not self._stop_event.is_set():
+                    print(f"[soundreal] Failed to capture audio chunk: {exc}")
+                    self._stop_event.wait(0.1)
 
-    def _update_from_snapshot(self, snapshot: list[np.ndarray]) -> None:
+    def _update_loop(self) -> None:
+        next_deadline = time.perf_counter()
+        last_processed_capture_sequence = -1
+        while not self._stop_event.is_set():
+            remaining = next_deadline - time.perf_counter()
+            if remaining > 0:
+                self._stop_event.wait(remaining)
+                if self._stop_event.is_set():
+                    break
+            start = time.perf_counter()
+            try:
+                snapshot_info = self._snapshot_audio_buffers()
+                if snapshot_info is None:
+                    next_deadline = time.perf_counter() + self.processing_period_s
+                    continue
+                snapshot, capture_sequence = snapshot_info
+                if capture_sequence == last_processed_capture_sequence:
+                    next_deadline = max(next_deadline + self.processing_period_s, time.perf_counter())
+                    continue
+                sound0, sound1, spec = self._build_images_from_snapshot(snapshot)
+                elapsed = time.perf_counter() - start
+                published_now = time.perf_counter()
+                dropped_captures = 0
+                if last_processed_capture_sequence >= 0:
+                    dropped_captures = max(0, capture_sequence - last_processed_capture_sequence - 1)
+                with self._lock:
+                    images_changed = not (
+                        np.array_equal(self.cached_images["sound0"], sound0)
+                        and np.array_equal(self.cached_images["sound1"], sound1)
+                        and np.array_equal(self.cached_images["spec"], spec)
+                    )
+                    if images_changed:
+                        self.cached_images["sound0"] = sound0
+                        self.cached_images["sound1"] = sound1
+                        self.cached_images["spec"] = spec
+                        self.latest_update_monotonic = published_now
+                        self.update_count += 1
+                    self.latest_process_monotonic = published_now
+                    self._recent_process_times.append(published_now)
+                    self.process_count += 1
+                    self.dropped_capture_count += dropped_captures
+                    self.last_compute_duration_s = elapsed
+                    self.last_process_error = None
+                    if elapsed > self.processing_period_s:
+                        self.late_cycle_count += 1
+                last_processed_capture_sequence = capture_sequence
+                if images_changed:
+                    self._ready_event.set()
+            except Exception as exc:
+                with self._lock:
+                    self.last_process_error = str(exc)
+                if not self._stop_event.is_set():
+                    print(f"[soundreal] Failed to update sound observations: {exc}")
+            next_deadline = max(next_deadline + self.processing_period_s, time.perf_counter())
+
+    def _ensure_capture_session(self) -> ContinuousSoundDeviceCapture:
+        with self._capture_lock:
+            if self._capture_session is None:
+                capture_session = ContinuousSoundDeviceCapture(
+                    devices=self.devices,
+                    samplerate=AUDIO_SAMPLE_RATE,
+                    channels=DEFAULT_MIC_CHANNELS,
+                    chunk_frames=self.capture_chunk_frames,
+                )
+                capture_session.start()
+                self._capture_session = capture_session
+            return self._capture_session
+
+    def _stop_capture_session(self) -> None:
+        with self._capture_lock:
+            if self._capture_session is None:
+                return
+            self._capture_session.stop()
+            self._capture_session = None
+
+    def _append_audio_chunks(self, chunks: list[np.ndarray]) -> None:
+        if len(chunks) != len(self._audio_buffers):
+            raise RuntimeError(
+                f"Expected {len(self._audio_buffers)} audio chunks, but received {len(chunks)}."
+            )
+
+        with self._audio_lock:
+            chunk_frames = None
+            for index, chunk in enumerate(chunks):
+                if chunk.ndim != 2 or chunk.shape[1] != DEFAULT_MIC_CHANNELS:
+                    raise RuntimeError(
+                        f"Unexpected chunk shape for array {index}: {chunk.shape}, expected (_, {DEFAULT_MIC_CHANNELS})."
+                    )
+                if chunk_frames is None:
+                    chunk_frames = chunk.shape[0]
+                elif chunk.shape[0] != chunk_frames:
+                    raise RuntimeError(
+                        "Audio chunks must have the same frame count for all arrays: "
+                        f"expected {chunk_frames}, got {chunk.shape[0]} for array {index}."
+                    )
+                if chunk_frames >= self.processing_frames:
+                    self._audio_buffers[index][:] = chunk[-self.processing_frames :]
+                else:
+                    buffer = self._audio_buffers[index]
+                    write_end = self.buffer_write_pos + chunk_frames
+                    if write_end <= self.processing_frames:
+                        buffer[self.buffer_write_pos : write_end] = chunk
+                    else:
+                        first = self.processing_frames - self.buffer_write_pos
+                        buffer[self.buffer_write_pos :] = chunk[:first]
+                        buffer[: write_end - self.processing_frames] = chunk[first:]
+            if chunk_frames is None:
+                return
+            if chunk_frames >= self.processing_frames:
+                self.buffer_write_pos = 0
+            else:
+                self.buffer_write_pos = (self.buffer_write_pos + chunk_frames) % self.processing_frames
+            self.buffered_frames = min(self.processing_frames, self.buffered_frames + chunk_frames)
+            self.capture_sequence += 1
+
+    def _snapshot_audio_buffers(self) -> tuple[list[np.ndarray], int] | None:
+        with self._audio_lock:
+            if self.buffered_frames <= 0:
+                return None
+            if self.buffered_frames < self.processing_frames:
+                snapshot = [buffer[: self.buffered_frames].copy() for buffer in self._audio_buffers]
+            elif self.buffer_write_pos == 0:
+                snapshot = [buffer.copy() for buffer in self._audio_buffers]
+            else:
+                snapshot = [
+                    np.concatenate((buffer[self.buffer_write_pos :], buffer[: self.buffer_write_pos]), axis=0)
+                    for buffer in self._audio_buffers
+                ]
+            return snapshot, self.capture_sequence
+
+    def _fit_realtime_nmf(self, concatenated_spec: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        concatenated_spec = np.asarray(concatenated_spec, dtype=np.float64)
+        n_components = min(
+            int(self.sound_camera.config.nmf_components),
+            int(concatenated_spec.shape[0]),
+            int(concatenated_spec.shape[1]),
+        )
+        if n_components <= 0:
+            raise RuntimeError(f"Invalid NMF input shape: {concatenated_spec.shape}")
+        state = self._nmf_state
+        use_warm_start = False
+        if state is not None:
+            prev_shape = state.get("shape")
+            prev_components = state.get("n_components")
+            prev_w = state.get("W")
+            prev_h = state.get("H")
+            use_warm_start = (
+                prev_shape == concatenated_spec.shape
+                and prev_components == n_components
+                and isinstance(prev_w, np.ndarray)
+                and isinstance(prev_h, np.ndarray)
+                and prev_w.shape[0] == concatenated_spec.shape[0]
+                and prev_h.shape[1] == concatenated_spec.shape[1]
+            )
+
+        model = NMF(
+            n_components=n_components,
+            init="custom" if use_warm_start else ("nndsvd" if n_components > 1 else "random"),
+            random_state=0,
+            max_iter=REALTIME_NMF_WARM_MAX_ITER if use_warm_start else REALTIME_NMF_INIT_MAX_ITER,
+            tol=REALTIME_NMF_TOL,
+        )
+
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", ConvergenceWarning)
+                if use_warm_start and state is not None:
+                    W = model.fit_transform(
+                        concatenated_spec,
+                        W=np.maximum(np.asarray(state["W"], dtype=np.float64), REALTIME_NMF_EPS),
+                        H=np.maximum(np.asarray(state["H"], dtype=np.float64), REALTIME_NMF_EPS),
+                    )
+                else:
+                    W = model.fit_transform(concatenated_spec)
+        except Exception:
+            self._nmf_state = None
+            model = NMF(
+                n_components=n_components,
+                init="nndsvd" if n_components > 1 else "random",
+                random_state=0,
+                max_iter=REALTIME_NMF_INIT_MAX_ITER,
+                tol=REALTIME_NMF_TOL,
+            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", ConvergenceWarning)
+                W = model.fit_transform(concatenated_spec)
+
+        H = model.components_
+        self._nmf_state = {
+            "shape": concatenated_spec.shape,
+            "n_components": n_components,
+            "W": np.maximum(W, REALTIME_NMF_EPS),
+            "H": np.maximum(H, REALTIME_NMF_EPS),
+        }
+        return W, H
+
+    def _reconstruct_primary_peak(
+        self,
+        mic_signals_list: list[np.ndarray],
+        top_peaks: list[tuple[float, float]],
+    ) -> Optional[np.ndarray]:
+        if not top_peaks:
+            return None
+
+        peak_x, peak_y = top_peaks[0]
+        beamformed_signals = []
+        for array_index, mic_signals in enumerate(mic_signals_list):
+            theta_deg = self.sound_camera._pixel_to_azimuth(
+                peak_x,
+                peak_y,
+                self.sound_camera.mic_positions[array_index],
+            )
+            beamformed_signals.append(
+                self.sound_camera._ds_beamform(
+                    mic_signals,
+                    self.array_relative_positions[array_index],
+                    theta_deg,
+                )
+            )
+
+        all_amp_specs = []
+        all_phases = []
+        for wav in beamformed_signals:
+            _, _, zxx = stft(
+                wav,
+                fs=self.sound_camera.config.fs,
+                nperseg=self.sound_camera.config.nfft,
+                noverlap=self.sound_camera.config.nfft // 2,
+            )
+            all_amp_specs.append(np.abs(zxx))
+            all_phases.append(np.angle(zxx))
+
+        concatenated_spec = np.concatenate(all_amp_specs, axis=1)
+        W, H = self._fit_realtime_nmf(concatenated_spec)
+        split_H = np.array_split(H, len(beamformed_signals), axis=1)
+        stacked_H = np.stack(split_H, axis=0)
+        min_activations = np.min(stacked_H, axis=0)
+        max_activation = float(np.max(min_activations))
+        if max_activation > 0.0:
+            normalized_activations = min_activations / max_activation
+        else:
+            normalized_activations = min_activations
+        binary_mask = (normalized_activations > self.sound_camera.config.nmf_threshold).astype(np.float64)
+        if not np.any(binary_mask) and max_activation > 0.0:
+            binary_mask = (normalized_activations >= np.max(normalized_activations)).astype(np.float64)
+
+        reconstructed_wavs = []
+        for phase_m, H_m in zip(all_phases, split_H):
+            reconstructed_amp_spec = W @ (H_m * binary_mask)
+            reconstructed_complex_spec = reconstructed_amp_spec * np.exp(1j * phase_m)
+            _, wav_m = istft(
+                reconstructed_complex_spec,
+                fs=self.sound_camera.config.fs,
+                nperseg=self.sound_camera.config.nfft,
+                noverlap=self.sound_camera.config.nfft // 2,
+            )
+            reconstructed_wavs.append(wav_m)
+
+        if not reconstructed_wavs:
+            return None
+
+        max_len = max(len(wav) for wav in reconstructed_wavs)
+        padded_wavs = [
+            wav if len(wav) == max_len else np.pad(wav, (0, max_len - len(wav)))
+            for wav in reconstructed_wavs
+        ]
+        final_wav = np.mean(np.stack(padded_wavs, axis=0), axis=0)
+        return final_wav[: self.processing_frames]
+
+    def _build_images_from_snapshot(self, snapshot: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         mic_signals_list = [audio.T for audio in snapshot]
         music_results = [
             estimate_music(self.sound_camera, mic_signals, idx)
@@ -738,7 +1155,7 @@ class RealSoundObservationSource:
             generate_soundmap_from_doa_fast(
                 self.sound_camera,
                 music_results[idx],
-                np.asarray(self.sound_camera.mic_positions[idx], dtype=np.float32),
+                self.array_centers[idx],
             )
             for idx in range(len(music_results))
         ]
@@ -751,25 +1168,21 @@ class RealSoundObservationSource:
 
             combined_map = build_combined_sound_map(sound_maps)
             top_peaks = compute_top_peaks(self.sound_camera, combined_map)
-            reconstructed = reconstruct_spotformed_wavs(
-                self.sound_camera,
-                sound_maps,
-                mic_signals_list,
-                top_peaks,
-            )
-            if reconstructed:
-                spec = create_spectrogram_image_from_audio(self.sound_camera, reconstructed[0])
+            reconstructed = self._reconstruct_primary_peak(mic_signals_list, top_peaks)
+            if reconstructed is not None:
+                spec = create_spectrogram_image_from_audio(self.sound_camera, reconstructed)
             else:
                 spec = np.zeros_like(sound0)
         else:
-            sound0 = np.zeros_like(self.cached_images["sound0"])
-            sound1 = np.zeros_like(self.cached_images["sound1"])
-            spec = np.zeros_like(self.cached_images["spec"])
-
-        with self._lock:
-            self.cached_images["sound0"] = sound0
-            self.cached_images["sound1"] = sound1
-            self.cached_images["spec"] = spec
+            zero_shape = (
+                self.sound_camera.config.observation_height,
+                self.sound_camera.config.observation_width,
+                3,
+            )
+            sound0 = np.zeros(zero_shape, dtype=np.uint8)
+            sound1 = np.zeros(zero_shape, dtype=np.uint8)
+            spec = np.zeros(zero_shape, dtype=np.uint8)
+        return sound0, sound1, spec
 
 
 def create_sound_debug_panel(
@@ -797,26 +1210,26 @@ def create_sound_debug_panel(
         tiles.append(tile)
 
     panel = np.concatenate(tiles, axis=1)
-    info_lines = []
-    if condition is not None:
-        info_lines.append(
-            f"speaker={condition.speaker} sound={condition.sound_label} ({condition.sound_path.name})"
-        )
+    info_lines = [
+        ""
+        if condition is None
+        else f"speaker={condition.speaker} sound={condition.sound_label} ({condition.sound_path.name})"
+    ]
     effective_fps = status.get("effective_fps")
     latest_age_s = status.get("latest_age_s")
+    buffered_duration_s = float(status.get("buffered_duration_s") or 0.0)
+    dropped_audio_s = float(status.get("dropped_audio_s") or 0.0)
     info_lines.append(
-        "updates={updates} late={late} fps={fps} compute={compute:.1f}ms age={age}".format(
-            updates=status.get("update_count"),
-            late=status.get("late_cycle_count"),
+        "proc={proc} drop={drop:.3f}s fps={fps} compute={compute:.1f}ms age={age} buffer={buffer:.3f}/{window:.1f}s".format(
+            proc=status.get("process_count"),
+            drop=dropped_audio_s,
             fps="n/a" if effective_fps is None else f"{effective_fps:.2f}",
             compute=1000.0 * float(status.get("last_compute_duration_s") or 0.0),
             age="n/a" if latest_age_s is None else f"{latest_age_s:.3f}s",
+            buffer=buffered_duration_s,
+            window=AUDIO_WINDOW_SECONDS,
         )
     )
-    last_error = status.get("last_error")
-    if last_error:
-        info_lines.append(f"last_error={last_error}")
-
     overlay_height = 28 * len(info_lines) + 12
     overlay = np.zeros((overlay_height, panel.shape[1], 3), dtype=np.uint8)
     for idx, line in enumerate(info_lines):
@@ -835,56 +1248,109 @@ def create_sound_debug_panel(
 
 def make_debug_output_path(output_path: str | None) -> Path:
     if output_path:
-        return Path(output_path)
+        path = Path(output_path)
+        return path if path.suffix.lower() == ".mp4" else path.with_suffix(".mp4")
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     return Path("debug") / f"soundreal_debug_{timestamp}.mp4"
 
 
-def open_debug_video_writer(output_path: Path, frame_size: tuple[int, int], fps: int) -> cv2.VideoWriter:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    writer = cv2.VideoWriter(
-        str(output_path),
-        cv2.VideoWriter_fourcc(*"mp4v"),
-        fps,
-        frame_size,
-    )
-    if not writer.isOpened():
-        raise RuntimeError(f"Failed to open VideoWriter for {output_path}")
-    return writer
+class DebugVideoRecorder:
+    def __init__(self, output_path: Path, fps: int):
+        self.output_path = output_path
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        self.fps = int(fps)
+        self._tmp_dir = tempfile.TemporaryDirectory(prefix="soundreal_debug_frames_")
+        self.frames_dir = Path(self._tmp_dir.name)
+        self.frame_index = 0
+        self.closed = False
+
+    def write(self, frame: np.ndarray) -> None:
+        if self.closed:
+            raise RuntimeError("DebugVideoRecorder is already closed.")
+        frame_path = self.frames_dir / f"frame-{self.frame_index:06d}.png"
+        ok = cv2.imwrite(str(frame_path), frame)
+        if not ok:
+            raise RuntimeError(f"Failed to write debug frame: {frame_path}")
+        self.frame_index += 1
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            if self.frame_index == 0:
+                return
+            command = [
+                "ffmpeg",
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-framerate",
+                str(self.fps),
+                "-i",
+                str(self.frames_dir / "frame-%06d.png"),
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+                str(self.output_path),
+            ]
+            result = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"ffmpeg encoding failed for {self.output_path}:\n{result.stderr.strip()}"
+                )
+        finally:
+            self._tmp_dir.cleanup()
+
+
+def parse_cli_device_ids(raw: str | None) -> list[int] | None:
+    if raw is None or not raw.strip():
+        return None
+    return [int(part.strip()) for part in raw.split(",") if part.strip()]
 
 
 def run_sound_debug_session(args: argparse.Namespace) -> None:
     rng = np.random.default_rng(args.seed)
-    condition = (
-        sample_sound_episode_condition(rng)
-        if args.sound_index is None or args.speaker is None
-        else SoundEpisodeCondition(
-            sound_index=int(args.sound_index),
-            sound_label=SOUND_LABELS[int(args.sound_index)],
-            sound_path=SOUND_FILES[int(args.sound_index)],
-            speaker=str(args.speaker),
-        )
+    sampled_condition = sample_sound_episode_condition(rng)
+    sound_index = sampled_condition.sound_index if args.sound_index is None else int(args.sound_index)
+    speaker = sampled_condition.speaker if args.speaker is None else str(args.speaker)
+    condition = SoundEpisodeCondition(
+        sound_index=sound_index,
+        sound_label=SOUND_LABELS[sound_index],
+        sound_path=SOUND_FILES[sound_index],
+        speaker=speaker,
     )
 
     sound_source = RealSoundObservationSource(
         explicit_device_ids=parse_device_ids_env("SOUNDREAL_DEVICE_IDS")
         if args.input_device_ids is None
-        else [int(part.strip()) for part in args.input_device_ids.split(",") if part.strip()],
+        else parse_cli_device_ids(args.input_device_ids),
         observation_height=args.height,
         observation_width=args.width,
-        audio_fps=args.audio_fps,
     )
     audio_player = None if args.no_audio else LoopingStereoPlayer(output_device=args.output_device)
     display_enabled = not args.no_display
     writer = None
+    output_path = None
     window_name = "soundreal_debug"
     frame_interval_s = 1.0 / max(1, args.video_fps)
     last_frame_time = 0.0
+    last_logged_process_count = -1
+    last_logged_error = None
 
     try:
         sound_source.start()
         if not sound_source.wait_until_ready(timeout_s=args.ready_timeout_s):
-            print("[soundreal] Audio buffers are still warming up. Initial debug frames may be zeros.")
+            print("[soundreal] Audio capture backend is still warming up. Initial debug frames may be zeros.")
 
         if audio_player is not None:
             audio_player.start(condition)
@@ -903,28 +1369,55 @@ def run_sound_debug_session(args: argparse.Namespace) -> None:
             if now - start_time >= args.duration_s:
                 break
 
-            images = sound_source.get_latest_images()
-            status = sound_source.get_debug_status()
+            images, status = sound_source.get_latest_debug_snapshot()
             panel = create_sound_debug_panel(images, status, condition)
 
             if writer is None and (args.save_mp4 or not display_enabled):
                 output_path = make_debug_output_path(args.output_path)
-                writer = open_debug_video_writer(
-                    output_path,
-                    frame_size=(panel.shape[1], panel.shape[0]),
-                    fps=args.video_fps,
-                )
+                writer = DebugVideoRecorder(output_path, fps=args.video_fps)
                 print(f"[soundreal] Saving debug video to {output_path}")
 
             if display_enabled:
-                cv2.imshow(window_name, panel)
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord("q"):
-                    break
+                try:
+                    cv2.imshow(window_name, panel)
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord("q"):
+                        break
+                except cv2.error as exc:
+                    print(f"[soundreal] Preview disabled because OpenCV window creation failed: {exc}")
+                    display_enabled = False
+                    if writer is None:
+                        output_path = make_debug_output_path(args.output_path)
+                        writer = DebugVideoRecorder(output_path, fps=args.video_fps)
+                        print(f"[soundreal] Falling back to debug video save: {output_path}")
 
             if writer is not None and now - last_frame_time >= frame_interval_s:
                 writer.write(panel)
                 last_frame_time = now
+
+            current_process_count = int(status.get("process_count") or 0)
+            current_error = status.get("last_error")
+
+            if current_error and current_error != last_logged_error:
+                print(f"[soundreal] error={current_error}")
+                last_logged_error = current_error
+
+            if current_process_count != last_logged_process_count:
+                print(
+                    "[soundreal] proc#{proc} drop={drop:.3f}s fps={fps} compute={compute:.1f}ms age={age} buffer={buffer:.3f}s".format(
+                        proc=current_process_count,
+                        drop=float(status.get("dropped_audio_s") or 0.0),
+                        fps="n/a"
+                        if status.get("effective_fps") is None
+                        else f"{float(status['effective_fps']):.2f}",
+                        compute=1000.0 * float(status.get("last_compute_duration_s") or 0.0),
+                        age="n/a"
+                        if status.get("latest_age_s") is None
+                        else f"{float(status['latest_age_s']):.3f}s",
+                        buffer=float(status.get("buffered_duration_s") or 0.0),
+                    )
+                )
+                last_logged_process_count = current_process_count
 
             time.sleep(max(0.0, min(0.02, frame_interval_s / 4.0)))
 
@@ -932,7 +1425,9 @@ def run_sound_debug_session(args: argparse.Namespace) -> None:
         print("\n[soundreal] Debug session interrupted by user.")
     finally:
         if writer is not None:
-            writer.release()
+            writer.close()
+            if output_path is not None:
+                print(f"[soundreal] Debug video saved: {output_path}")
         if display_enabled:
             cv2.destroyAllWindows()
         if audio_player is not None:
@@ -962,7 +1457,6 @@ def print_audio_device_list() -> None:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="soundReal audio pipeline debug utility")
     parser.add_argument("--duration_s", type=float, default=15.0, help="debug session duration in seconds")
-    parser.add_argument("--audio_fps", type=int, default=AUDIO_FPS, help="target sound observation FPS")
     parser.add_argument("--video_fps", type=int, default=AUDIO_FPS, help="preview/save FPS")
     parser.add_argument("--height", type=int, default=OBSERVATION_HEIGHT, help="observation height")
     parser.add_argument("--width", type=int, default=OBSERVATION_WIDTH, help="observation width")
@@ -995,7 +1489,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ready_timeout_s",
         type=float,
-        default=2.0,
+        default=5.0,
         help="seconds to wait for the first sound observation",
     )
     parser.add_argument("--list_devices", action="store_true", help="print available audio devices and exit")

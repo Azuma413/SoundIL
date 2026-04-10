@@ -354,7 +354,7 @@ async def main(args) -> None:
             observation_width=OBSERVATION_WIDTH,
         )
         sound_source.start()
-        if not sound_source.wait_until_ready(timeout_s=2.0):
+        if not sound_source.wait_until_ready(timeout_s=5.0):
             print("[soundreal] Audio buffers are still warming up. Initial frames may contain zeros.")
         audio_player = LoopingStereoPlayer(output_device=args.output_device)
 

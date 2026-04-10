@@ -153,7 +153,7 @@ class RobotCommunicationNode:
         if self.sound_source is None:
             self.sound_source = RealSoundObservationSource()
             self.sound_source.start()
-            if not self.sound_source.wait_until_ready(timeout_s=2.0):
+            if not self.sound_source.wait_until_ready(timeout_s=5.0):
                 print("[soundreal] Audio buffers are still warming up. Initial frames may contain zeros.")
         if self.audio_player is None:
             self.audio_player = LoopingStereoPlayer()
