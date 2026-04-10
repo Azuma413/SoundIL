@@ -7,7 +7,6 @@ import subprocess
 import tempfile
 import threading
 import time
-import warnings
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,11 +16,11 @@ import cv2
 import numpy as np
 import pyroomacoustics as pra
 import sounddevice as sd
+import torch
 from pydub import AudioSegment
 from scipy.ndimage import gaussian_filter
 from scipy.signal import istft, stft
-from sklearn.decomposition import NMF
-from sklearn.exceptions import ConvergenceWarning
+from torchnmf.nmf import NMF as TorchNMF
 
 from env.tasks.sound_camera import SoundCamera, SoundConfig
 
@@ -99,6 +98,9 @@ REALTIME_NMF_INIT_MAX_ITER = 40
 REALTIME_NMF_WARM_MAX_ITER = 15
 REALTIME_NMF_TOL = 2e-2
 REALTIME_NMF_EPS = 1e-12
+REALTIME_NMF_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+REALTIME_NMF_BETA = 2
+REALTIME_NMF_MAX_MASK_RATIO = 0.2
 
 SOUNDS_DIR = Path("sounds")
 SOUND_FILES = {
@@ -743,7 +745,7 @@ class RealSoundObservationSource:
         self.late_cycle_count = 0
         self.last_capture_error: Optional[str] = None
         self.last_process_error: Optional[str] = None
-        self._nmf_state: Optional[dict[str, np.ndarray | tuple[int, int]]] = None
+        self._nmf_state: Optional[dict[str, object]] = None
         self.cached_images = {
             "sound0": np.zeros((observation_height, observation_width, 3), dtype=np.uint8),
             "sound1": np.zeros((observation_height, observation_width, 3), dtype=np.uint8),
@@ -755,6 +757,9 @@ class RealSoundObservationSource:
             return
         self._stop_event.clear()
         self._ready_event.clear()
+        if REALTIME_NMF_DEVICE == "cuda":
+            torch.empty(1, device="cuda")
+            torch.cuda.synchronize()
         with self._audio_lock:
             self.buffered_frames = 0
             self.buffer_write_pos = 0
@@ -1007,7 +1012,7 @@ class RealSoundObservationSource:
             return snapshot, self.capture_sequence
 
     def _fit_realtime_nmf(self, concatenated_spec: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        concatenated_spec = np.asarray(concatenated_spec, dtype=np.float64)
+        concatenated_spec = np.asarray(concatenated_spec, dtype=np.float32)
         n_components = min(
             int(self.sound_camera.config.nmf_components),
             int(concatenated_spec.shape[0]),
@@ -1015,62 +1020,50 @@ class RealSoundObservationSource:
         )
         if n_components <= 0:
             raise RuntimeError(f"Invalid NMF input shape: {concatenated_spec.shape}")
+        device_name = REALTIME_NMF_DEVICE
+        device = torch.device(device_name)
         state = self._nmf_state
-        use_warm_start = False
-        if state is not None:
-            prev_shape = state.get("shape")
-            prev_components = state.get("n_components")
-            prev_w = state.get("W")
-            prev_h = state.get("H")
-            use_warm_start = (
-                prev_shape == concatenated_spec.shape
-                and prev_components == n_components
-                and isinstance(prev_w, np.ndarray)
-                and isinstance(prev_h, np.ndarray)
-                and prev_w.shape[0] == concatenated_spec.shape[0]
-                and prev_h.shape[1] == concatenated_spec.shape[1]
-            )
-
-        model = NMF(
-            n_components=n_components,
-            init="custom" if use_warm_start else ("nndsvd" if n_components > 1 else "random"),
-            random_state=0,
-            max_iter=REALTIME_NMF_WARM_MAX_ITER if use_warm_start else REALTIME_NMF_INIT_MAX_ITER,
-            tol=REALTIME_NMF_TOL,
+        use_warm_start = (
+            state is not None
+            and state.get("shape") == concatenated_spec.shape
+            and state.get("n_components") == n_components
+            and state.get("device") == device_name
+            and isinstance(state.get("model"), TorchNMF)
         )
 
+        model = state["model"] if use_warm_start and state is not None else None
+        if model is None:
+            model = TorchNMF(concatenated_spec.shape, rank=n_components).to(device)
+
+        target = torch.from_numpy(concatenated_spec).to(device)
         try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", ConvergenceWarning)
-                if use_warm_start and state is not None:
-                    W = model.fit_transform(
-                        concatenated_spec,
-                        W=np.maximum(np.asarray(state["W"], dtype=np.float64), REALTIME_NMF_EPS),
-                        H=np.maximum(np.asarray(state["H"], dtype=np.float64), REALTIME_NMF_EPS),
-                    )
-                else:
-                    W = model.fit_transform(concatenated_spec)
+            model.fit(
+                target,
+                beta=REALTIME_NMF_BETA,
+                tol=REALTIME_NMF_TOL,
+                max_iter=REALTIME_NMF_WARM_MAX_ITER if use_warm_start else REALTIME_NMF_INIT_MAX_ITER,
+                verbose=False,
+            )
         except Exception:
             self._nmf_state = None
-            model = NMF(
-                n_components=n_components,
-                init="nndsvd" if n_components > 1 else "random",
-                random_state=0,
-                max_iter=REALTIME_NMF_INIT_MAX_ITER,
+            model = TorchNMF(concatenated_spec.shape, rank=n_components).to(device)
+            model.fit(
+                target,
+                beta=REALTIME_NMF_BETA,
                 tol=REALTIME_NMF_TOL,
+                max_iter=REALTIME_NMF_INIT_MAX_ITER,
+                verbose=False,
             )
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", ConvergenceWarning)
-                W = model.fit_transform(concatenated_spec)
 
-        H = model.components_
+        W = model.H.detach().cpu().numpy().astype(np.float64, copy=False)
+        H = model.W.detach().cpu().numpy().T.astype(np.float64, copy=False)
         self._nmf_state = {
             "shape": concatenated_spec.shape,
             "n_components": n_components,
-            "W": np.maximum(W, REALTIME_NMF_EPS),
-            "H": np.maximum(H, REALTIME_NMF_EPS),
+            "device": device_name,
+            "model": model,
         }
-        return W, H
+        return np.maximum(W, REALTIME_NMF_EPS), np.maximum(H, REALTIME_NMF_EPS)
 
     def _reconstruct_primary_peak(
         self,
@@ -1119,6 +1112,14 @@ class RealSoundObservationSource:
         else:
             normalized_activations = min_activations
         binary_mask = (normalized_activations > self.sound_camera.config.nmf_threshold).astype(np.float64)
+        mask_ratio = float(binary_mask.mean()) if binary_mask.size else 0.0
+        if mask_ratio > REALTIME_NMF_MAX_MASK_RATIO:
+            adaptive_threshold = float(
+                np.quantile(normalized_activations, 1.0 - REALTIME_NMF_MAX_MASK_RATIO)
+            )
+            binary_mask = (
+                normalized_activations >= max(self.sound_camera.config.nmf_threshold, adaptive_threshold)
+            ).astype(np.float64)
         if not np.any(binary_mask) and max_activation > 0.0:
             binary_mask = (normalized_activations >= np.max(normalized_activations)).astype(np.float64)
 
