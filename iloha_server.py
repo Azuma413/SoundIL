@@ -16,9 +16,24 @@ from lerobot.datasets.utils import build_dataset_frame
 from lerobot.datasets.video_utils import VideoEncodingManager
 from lerobot.cameras.realsense.configuration_realsense import RealSenseCameraConfig
 from lerobot.cameras import make_cameras_from_configs
+from soundreal_utils import (
+    DEFAULT_CAMERA_CONFIGS,
+    SOUNDREAL_TASK_NAME,
+    LoopingStereoPlayer,
+    RealSoundObservationSource,
+    RIGHT_ARM_FEATURE_NAMES,
+    build_soundreal_dataset_features,
+    decode_right_arm_action_packet,
+    full_action_to_right_feature_dict,
+    get_camera_configs,
+    is_soundreal_task,
+    make_full_action_from_right,
+    preprocess_camera_frame,
+    right_arm_full_slice,
+    sample_sound_episode_condition,
+)
 
-# TASK = "do something"
-TASK = "folding cloth"
+TASK = SOUNDREAL_TASK_NAME
 
 class RobotCommunicationNode:
     # データセット設定
@@ -27,14 +42,15 @@ class RobotCommunicationNode:
     EPISODE_MAX_TIME_S = 180
     CAMERA_MAX_FRAME_AGE_MS = 250
     # カメラ設定
-    CAMERA_CONFIGS = {
-        "cam_high": {"serial_number_or_name": "029522250086", "width": 640, "height": 480, "fps": 30},
-        "cam_left_wrist": {"serial_number_or_name": "341522301205", "width": 640, "height": 480, "fps": 30},
-        "cam_right_wrist": {"serial_number_or_name": "146222252104", "width": 640, "height": 480, "fps": 30}
-    }
+    CAMERA_CONFIGS = DEFAULT_CAMERA_CONFIGS
 
     def __init__(self):
         self.websocket_port = 8080
+        self.task = TASK
+        self.soundreal_enabled = is_soundreal_task(self.task)
+        self.camera_configs = get_camera_configs(self.task)
+        self.state_names = RIGHT_ARM_FEATURE_NAMES if self.soundreal_enabled else tuple(JOINT_NAMES)
+        self.dataset_prefix = self.task if self.soundreal_enabled else "iloha"
         self.unity_joint_port: Optional[int] = None
         self.is_connected = False
         self.is_receiving_joints = False
@@ -58,6 +74,12 @@ class RobotCommunicationNode:
         self.recording_task: Optional[asyncio.Task] = None
         self.cameras: dict = {}
         self.video_encoding_manager: Optional[VideoEncodingManager] = None
+        self.sound_source: Optional[RealSoundObservationSource] = None
+        self.audio_player: Optional[LoopingStereoPlayer] = None
+        self.current_sound_condition = None
+        self.awaiting_recording_trigger = False
+        self.first_action_time: Optional[float] = None
+        self.rng = np.random.default_rng()
 
     def _get_buffered_frame_count(self) -> int:
         """現在のエピソードバッファに積まれているフレーム数を返す"""
@@ -68,15 +90,16 @@ class RobotCommunicationNode:
             return 0
         return int(episode_buffer.get("size", 0))
 
-    def _get_next_dataset_number(self) -> int:
+    def _get_next_dataset_number(self, prefix: Optional[str] = None) -> int:
         """既存のデータセット番号を確認し、次の番号を返す"""
         if not self.DATASET_ROOT.exists():
             return 0
+        prefix = prefix or self.dataset_prefix
         existing_nums = []
         for path in self.DATASET_ROOT.iterdir():
-            if path.is_dir() and path.name.startswith("iloha-"):
+            if path.is_dir() and path.name.startswith(f"{prefix}_"):
                 try:
-                    num = int(path.name.split("-")[-1])
+                    num = int(path.name.rsplit("_", 1)[-1])
                     existing_nums.append(num)
                 except ValueError:
                     continue
@@ -111,7 +134,7 @@ class RobotCommunicationNode:
         """カメラを初期化して辞書で返す"""
         try:
             camera_configs = {}
-            for name, config_dict in self.CAMERA_CONFIGS.items():
+            for name, config_dict in self.camera_configs.items():
                 camera_configs[name] = RealSenseCameraConfig(**config_dict)
             cameras = make_cameras_from_configs(camera_configs)
             for name, camera in cameras.items():
@@ -124,11 +147,47 @@ class RobotCommunicationNode:
             print(f"カメラ初期化エラー: {e}")
             return {}
 
+    def _ensure_sound_runtime(self) -> None:
+        if not self.soundreal_enabled:
+            return
+        if self.sound_source is None:
+            self.sound_source = RealSoundObservationSource()
+            self.sound_source.start()
+            if not self.sound_source.wait_until_ready(timeout_s=2.0):
+                print("[soundreal] Audio buffers are still warming up. Initial frames may contain zeros.")
+        if self.audio_player is None:
+            self.audio_player = LoopingStereoPlayer()
+
+    def _set_next_sound_condition(self) -> None:
+        if not self.soundreal_enabled:
+            return
+        self._ensure_sound_runtime()
+        self.current_sound_condition = sample_sound_episode_condition(self.rng)
+        print(
+            "[soundreal] Episode stimulus prepared: "
+            f"speaker={self.current_sound_condition.speaker}, "
+            f"sound={self.current_sound_condition.sound_label}"
+        )
+        self.audio_player.start(self.current_sound_condition)
+
+    def _stop_sound_runtime(self) -> None:
+        if self.audio_player is not None:
+            self.audio_player.stop()
+            self.audio_player = None
+        if self.sound_source is not None:
+            self.sound_source.stop()
+            self.sound_source = None
+        self.current_sound_condition = None
+
     async def start_recording(self, websocket):
         """記録を開始"""
         try:
             if self.is_recording:
                 response = {"status": "recording_error", "message": "既に記録中です"}
+                await websocket.send(json.dumps(response))
+                return
+            if self.recording_ready or self.current_dataset is not None:
+                response = {"status": "recording_error", "message": "既に記録セッションが準備されています"}
                 await websocket.send(json.dumps(response))
                 return
             if not self.robot_connected:
@@ -141,37 +200,48 @@ class RobotCommunicationNode:
                 await websocket.send(json.dumps(response))
                 return
             self.robot.cameras = self.cameras
-            dataset_num = self._get_next_dataset_number()
-            dataset_name = f"iloha-{dataset_num}"
+            if self.soundreal_enabled:
+                self._ensure_sound_runtime()
+            dataset_num = self._get_next_dataset_number(self.dataset_prefix)
+            dataset_name = f"{self.dataset_prefix}_{dataset_num}"
             repo_id = f"local/{dataset_name}"
             dataset_path = self.DATASET_ROOT / dataset_name
             print(f"データセットを作成中: {repo_id}")
-            dataset_features = {
-                "observation.state": {"dtype": "float32", "shape": (14,), "names": JOINT_NAMES},
-                "action": {"dtype": "float32", "shape": (14,), "names": JOINT_NAMES},
-            }
-            for key in self.CAMERA_CONFIGS.keys():
-                dataset_features[f"observation.images.{key}"] = {
-                    "dtype": "video",
-                    "shape": (480, 640, 3),
-                    "names": ("height", "width", "channels")
+            if self.soundreal_enabled:
+                dataset_features = build_soundreal_dataset_features()
+            else:
+                dataset_features = {
+                    "observation.state": {"dtype": "float32", "shape": (14,), "names": JOINT_NAMES},
+                    "action": {"dtype": "float32", "shape": (14,), "names": JOINT_NAMES},
                 }
+                for key in self.camera_configs.keys():
+                    dataset_features[f"observation.images.{key}"] = {
+                        "dtype": "video",
+                        "shape": (480, 640, 3),
+                        "names": ("height", "width", "channels")
+                    }
+            image_feature_count = sum(
+                1 for key in dataset_features.keys() if key.startswith("observation.images.")
+            )
             self.current_dataset = LeRobotDataset.create(
                 repo_id,
                 self.DATASET_FPS,
                 root=dataset_path,
-                robot_type="aloha",
+                robot_type="iloha_single_arm" if self.soundreal_enabled else "aloha",
                 features=dataset_features,
                 use_videos=True,
                 image_writer_processes=0,
-                streaming_encoding=True,
-                image_writer_threads=len(self.cameras),
+                image_writer_threads=max(1, image_feature_count),
                 video_backend="pyav",  # torchcodecのAV1デコード問題を回避
             )
             self.video_encoding_manager = VideoEncodingManager(self.current_dataset)
             self.video_encoding_manager.__enter__()
             print(f"データセット作成完了: {repo_id}")
             self.recording_ready = True
+            self.awaiting_recording_trigger = True
+            self.first_action_time = None
+            if self.soundreal_enabled:
+                self._set_next_sound_condition()
             self.recording_task = asyncio.create_task(self.record_episode())
             response = {"status": "recording_ready", "message": f"記録準備完了: {dataset_name}。初回アクション受信後に記録を開始します"}
             await websocket.send(json.dumps(response))
@@ -179,6 +249,10 @@ class RobotCommunicationNode:
             print(f"記録開始エラー: {e}")
             import traceback
             traceback.print_exc()
+            try:
+                await self._full_cleanup_recording()
+            except Exception as cleanup_error:
+                print(f"記録開始失敗後のクリーンアップエラー: {cleanup_error}")
             response = {"status": "recording_error", "message": f"記録開始エラー: {e}"}
             await websocket.send(json.dumps(response))
 
@@ -193,6 +267,11 @@ class RobotCommunicationNode:
                 except asyncio.CancelledError:
                     pass
             self.recording_task = None
+            self.first_action_time = None
+            self.recording_start_time = None
+            self.awaiting_recording_trigger = False
+            with self.action_lock:
+                self.latest_action = None
             print("記録を停止しました（リソースは保持）")
 
     async def save_episode(self, websocket):
@@ -253,29 +332,35 @@ class RobotCommunicationNode:
             and self.current_dataset is not None
             and (self.recording_task is None or self.recording_task.done())
         ):
+            self.awaiting_recording_trigger = True
+            self.first_action_time = None
+            self.recording_start_time = None
+            if self.soundreal_enabled:
+                self._set_next_sound_condition()
             self.recording_task = asyncio.create_task(self.record_episode())
             print("次のエピソードの記録準備完了")
 
     async def _full_cleanup_recording(self):
         """記録関連のリソースを完全にクリーンアップ"""
         await self.stop_recording()
-        if self.current_dataset:
-            try:
-                self.current_dataset.finalize()
-            except Exception as e:
-                print(f"データセット終了エラー: {e}")
         if self.video_encoding_manager:
             try:
                 self.video_encoding_manager.__exit__(None, None, None)
             except Exception as e:
                 print(f"VideoEncodingManager終了エラー: {e}")
             self.video_encoding_manager = None
+        elif self.current_dataset:
+            try:
+                self.current_dataset.finalize()
+            except Exception as e:
+                print(f"データセット終了エラー: {e}")
         for camera in self.cameras.values():
             try:
                 camera.disconnect()
             except Exception as e:
                 print(f"カメラ切断エラー: {e}")
         self.cameras = {}
+        self._stop_sound_runtime()
         if self.robot:
             self.robot.cameras = {}
         self.current_dataset = None
@@ -291,12 +376,20 @@ class RobotCommunicationNode:
         joint_state = self.robot.old_action.copy()
         for name, camera in self.cameras.items():
             try:
-                obs[name] = camera.read_latest(max_age_ms=self.CAMERA_MAX_FRAME_AGE_MS)
+                frame = camera.read_latest(max_age_ms=self.CAMERA_MAX_FRAME_AGE_MS)
             except Exception:
                 # 最新フレームがまだ無い場合のみ、新規フレーム待ちにフォールバックする
-                obs[name] = camera.async_read(timeout_ms=self.CAMERA_MAX_FRAME_AGE_MS)
-        for i, joint_name in enumerate(JOINT_NAMES):
-            obs[joint_name] = joint_state[i]
+                frame = camera.async_read(timeout_ms=self.CAMERA_MAX_FRAME_AGE_MS)
+            obs[name] = preprocess_camera_frame(frame) if self.soundreal_enabled else frame
+
+        if self.soundreal_enabled:
+            if self.sound_source is None:
+                raise RuntimeError("Sound runtime is not initialized.")
+            obs.update(self.sound_source.get_latest_images())
+            obs.update(full_action_to_right_feature_dict(joint_state))
+        else:
+            for i, joint_name in enumerate(JOINT_NAMES):
+                obs[joint_name] = joint_state[i]
         return obs
 
     def _record_frame_sync(self) -> None:
@@ -305,14 +398,24 @@ class RobotCommunicationNode:
             raise RuntimeError("データセットが初期化されていません")
 
         obs = self._capture_latest_observation()
-        action_data = {joint_name: obs[joint_name] for joint_name in JOINT_NAMES}
+        with self.action_lock:
+            latest_action = None if self.latest_action is None else self.latest_action.copy()
+        if latest_action is None:
+            latest_action = (
+                right_arm_full_slice(self.robot.old_action)
+                if self.soundreal_enabled
+                else self.robot.old_action.copy()
+            )
+        action_data = {
+            joint_name: float(latest_action[idx]) for idx, joint_name in enumerate(self.state_names)
+        }
         observation_frame = build_dataset_frame(
             self.current_dataset.features, obs, prefix="observation"
         )
         action_frame = build_dataset_frame(
             self.current_dataset.features, action_data, prefix="action"
         )
-        frame = {**observation_frame, **action_frame, "task": TASK}
+        frame = {**observation_frame, **action_frame, "task": self.task}
         self.current_dataset.add_frame(frame)
 
     async def record_episode(self):
@@ -494,27 +597,33 @@ class RobotCommunicationNode:
     async def robot_control_worker(self):
         print("ロボット制御ワーカー開始")
         try:
-            first_action_time = None
             current_latest_action = None
             while self.robot_connected and not self.stop_threads and not self.stop_event.is_set():
                 start_time = time.perf_counter()
                 with self.action_lock:
-                    if self.latest_action is not None:
-                        current_latest_action = self.latest_action.copy()
-                if current_latest_action is None:
+                    latest_action = None if self.latest_action is None else self.latest_action.copy()
+                if latest_action is None:
+                    current_latest_action = None
                     await asyncio.sleep(0.01)
                     continue
+                current_latest_action = latest_action
                 if self.reset_in_progress.is_set():
                     await asyncio.sleep(0.1)
                     continue
-                if first_action_time is None:
-                    first_action_time = time.time()
+                if self.first_action_time is None:
+                    self.first_action_time = time.time()
                     print("初回アクション受信を記録しました。安定化するまで相対制限付きで制御します。")
-                    if self.recording_ready and not self.is_recording:
-                        self.is_recording = True
-                        self.recording_start_time = time.time()
-                elapsed_since_first_action = time.time() - first_action_time
-                previous_action = self.robot.old_action.copy()
+                if self.recording_ready and not self.is_recording and self.awaiting_recording_trigger:
+                    self.awaiting_recording_trigger = False
+                    self.first_action_time = time.time()
+                    self.is_recording = True
+                    self.recording_start_time = time.time()
+                elapsed_since_first_action = time.time() - self.first_action_time
+                previous_action = (
+                    right_arm_full_slice(self.robot.old_action)
+                    if self.soundreal_enabled
+                    else self.robot.old_action.copy()
+                )
                 delta_from_previous = np.abs(current_latest_action - previous_action)
                 max_delta = float(np.max(delta_from_previous))
                 use_relative = (
@@ -528,7 +637,16 @@ class RobotCommunicationNode:
                     # )
                 async with self.robot_lock:
                     if not self.reset_in_progress.is_set() and self.robot_connected:
-                        await self.robot.async_send_action(current_latest_action, use_relative=use_relative, use_filter=not use_relative)
+                        action_to_send = (
+                            make_full_action_from_right(current_latest_action)
+                            if self.soundreal_enabled
+                            else current_latest_action
+                        )
+                        await self.robot.async_send_action(
+                            action_to_send,
+                            use_relative=use_relative,
+                            use_filter=not use_relative,
+                        )
                 elapsed_time = time.perf_counter() - start_time
                 sleep_duration = 1.0 / self.control_frequency - elapsed_time
                 if sleep_duration > 0:
@@ -549,10 +667,15 @@ class RobotCommunicationNode:
             while self.is_receiving_joints and not self.stop_threads:
                 try:
                     data, addr = sock.recvfrom(256)
-                    if len(data) >= 57:  # 1バイト（モード） + 56バイト（14個のfloat32）
+                    if self.soundreal_enabled:
+                        mode, right_action = decode_right_arm_action_packet(data)
+                        if mode == 1 and right_action is not None and self.robot_connected:
+                            with self.action_lock:
+                                self.latest_action = right_action
+                    elif len(data) >= 57:  # 1バイト（モード） + 56バイト（14個のfloat32）
                         mode = data[0]
                         joint_angles = [
-                            struct.unpack('<f', data[1 + i * 4:5 + i * 4])[0] 
+                            struct.unpack('<f', data[1 + i * 4:5 + i * 4])[0]
                             for i in range(14)
                         ]
                         joint_angles[0] += np.pi / 2
