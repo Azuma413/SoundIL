@@ -19,4 +19,19 @@ dependencies = [
     "torchcodec>=0.4.0",
     "torchnmf>=0.3.5",
     "transformers @ git+https://github.com/huggingface/transformers.git@fix/lerobot_openpi",
+    "websockets>=16.0",
+    "dynamixel-sdk>=3.7.31,<3.9.0",
+    "pyserial-asyncio>=0.6",
+    "torch",
+    "torchvision",
+    "pyrealsense2>=2.55.1.6486,<2.57.0 ; sys_platform != 'darwin'",
 ]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

@@ -81,6 +81,17 @@ class RobotCommunicationNode:
         self.first_action_time: Optional[float] = None
         self.rng = np.random.default_rng()
 
+    @staticmethod
+    def _make_right_arm_only_action(right_arm_action: np.ndarray) -> np.ndarray:
+        full_action = np.zeros(14, dtype=np.float32)
+        full_action[7:14] = np.asarray(right_arm_action[7:14], dtype=np.float32)
+        return full_action
+
+    def _make_right_arm_home_action(self) -> np.ndarray:
+        home_action = np.zeros_like(self.robot.old_action, dtype=np.float32)
+        home_action[7:10] = self.robot.old_action[7:10]
+        return home_action
+
     def _get_buffered_frame_count(self) -> int:
         """現在のエピソードバッファに積まれているフレーム数を返す"""
         if self.current_dataset is None:
@@ -112,6 +123,8 @@ class RobotCommunicationNode:
                 left_robstride_port="/dev/ttyUSB2",
                 right_robstride_port="/dev/ttyUSB0",
                 right_dynamixel_port="/dev/ttyUSB1",
+                enable_left_arm=False,
+                enable_right_arm=True,
                 max_relative_target_1=0.03, # yaw
                 max_relative_target_2=0.01, # pitch
                 max_relative_target_3=0.01, # pitch
@@ -540,12 +553,10 @@ class RobotCommunicationNode:
                         except asyncio.TimeoutError:
                             print("警告: ロボット制御タスクが停止できませんでした")
                             self.robot_control_task.cancel()
-                    home_action = self.robot.old_action.copy()
-                    home_action[3:7] = 0.0
-                    home_action[10:14] = 0.0
+                    home_action = self._make_right_arm_home_action()
                     await self.robot.async_send_action(home_action, use_relative=False, use_filter=False, use_unwrap=False)
                     await asyncio.sleep(2.0)
-                    home_action = np.zeros_like(home_action)
+                    home_action = self._make_right_arm_only_action(np.zeros_like(self.robot.old_action))
                     await self.robot.async_send_action(home_action, use_relative=False, use_filter=False, use_unwrap=False)
                     await asyncio.sleep(1.0)
                     print("ホームポジション移動完了")
@@ -726,12 +737,10 @@ class RobotCommunicationNode:
         if self.robot_connected and self.robot:
             try:
                 print("ロボットを初期位置に戻しています...")
-                home_action = self.robot.old_action.copy()
-                home_action[3:7] = 0.0
-                home_action[10:14] = 0.0
+                home_action = self._make_right_arm_home_action()
                 await self.robot.async_send_action(home_action, use_relative=False, use_filter=False, use_unwrap=False)
                 await asyncio.sleep(2.0)
-                home_action = np.zeros_like(home_action)
+                home_action = self._make_right_arm_only_action(np.zeros_like(self.robot.old_action))
                 await self.robot.async_send_action(home_action, use_relative=False, use_filter=False, use_unwrap=False)
                 await asyncio.sleep(1.0)
                 print("ロボット初期位置復帰完了")
