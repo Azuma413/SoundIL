@@ -129,12 +129,13 @@ class SoundTask(NormalTask):
         
         return spaces.Dict(obs_space_dict)
     
-    def reset(self):
+    def reset(self, options=None):
         """
         環境をリセットし、音源ターゲットを更新
         """
+        options = options or {}
         # 親クラスのresetを呼び出し（self.colorが決定される）
-        obs, info = super().reset()
+        obs, info = super().reset(options=options)
         
         if self.task_type == "sound":
             # 2つのCubeのうち、どちらかが音源になる
@@ -144,7 +145,11 @@ class SoundTask(NormalTask):
             # self.colorを使ってターゲットを決めるロジックは親クラスのresetでランダムに選ばれたcolorに依存する
             # しかし、NormalTaskのresetではcolorはランダムに選ばれるが、same_color=Trueの場合、見た目は同じ
             # ここでは、ランダムにターゲットを選ぶ
-            target_name = np.random.choice(["cubeR", "cubeG"])
+            target_name = options.get("target_cube_name")
+            if target_name is None:
+                target_name = np.random.choice(["cubeR", "cubeG"])
+            elif target_name not in ["cubeR", "cubeG"]:
+                raise ValueError(f"Invalid target_cube_name: {target_name}")
             if target_name == "cubeR":
                 self.sound_cam.target = self.cubeR
                 self.target_cube_name = "cubeR"
@@ -158,7 +163,11 @@ class SoundTask(NormalTask):
             self.target_cube_name = "cubeR"
             
             # 音の種類をランダムに選択（A or B）
-            sound_type = np.random.choice(["A", "B"])
+            sound_type = options.get("sound_type")
+            if sound_type is None:
+                sound_type = np.random.choice(["A", "B"])
+            elif sound_type not in ["A", "B"]:
+                raise ValueError(f"Invalid sound_type: {sound_type}")
             if sound_type == "A":
                 # 音Aの設定
                 self.sound_cam._load_audio_file(SOUND_A_PATH)
@@ -173,7 +182,11 @@ class SoundTask(NormalTask):
 
         elif self.task_type == "soundShake":
             # 2つのCubeのうち、どちらかがターゲット
-            target_name = np.random.choice(["cubeR", "cubeG"])
+            target_name = options.get("target_cube_name")
+            if target_name is None:
+                target_name = np.random.choice(["cubeR", "cubeG"])
+            elif target_name not in ["cubeR", "cubeG"]:
+                raise ValueError(f"Invalid target_cube_name: {target_name}")
             if target_name == "cubeR":
                 self.sound_cam.target = self.cubeR
                 self.target_cube_name = "cubeR"
@@ -183,7 +196,11 @@ class SoundTask(NormalTask):
 
         elif self.task_type == "soundAll":
             # 2つのCubeのうち、どちらかが音源（音A: 0.wav）
-            target_name = np.random.choice(["cubeR", "cubeG"])
+            target_name = options.get("target_cube_name")
+            if target_name is None:
+                target_name = np.random.choice(["cubeR", "cubeG"])
+            elif target_name not in ["cubeR", "cubeG"]:
+                raise ValueError(f"Invalid target_cube_name: {target_name}")
             if target_name == "cubeR":
                 self.sound_cam.target = self.cubeR
                 self.target_cube_name = "cubeR"
@@ -192,7 +209,11 @@ class SoundTask(NormalTask):
                 self.target_cube_name = "cubeG"
             
             # 移動時の音をランダムに選択（音B or 音C）
-            sound_type = np.random.choice(["B", "C"])
+            sound_type = options.get("sound_type")
+            if sound_type is None:
+                sound_type = np.random.choice(["B", "C"])
+            elif sound_type not in ["B", "C"]:
+                raise ValueError(f"Invalid sound_type: {sound_type}")
             if sound_type == "B":
                 # 音B (1.wav) → 右の箱
                 self.sound_cam.set_moving_audio(SOUND_B_PATH)
@@ -205,7 +226,11 @@ class SoundTask(NormalTask):
             self.current_sound_type = sound_type
 
         elif self.task_type == "soundSim":
-            target_name = np.random.choice(["cubeR", "cubeG"])
+            target_name = options.get("target_cube_name")
+            if target_name is None:
+                target_name = np.random.choice(["cubeR", "cubeG"])
+            elif target_name not in ["cubeR", "cubeG"]:
+                raise ValueError(f"Invalid target_cube_name: {target_name}")
             if target_name == "cubeR":
                 self.sound_cam.target = self.cubeR
                 self.target_cube_name = "cubeR"
@@ -213,7 +238,11 @@ class SoundTask(NormalTask):
                 self.sound_cam.target = self.cubeG
                 self.target_cube_name = "cubeG"
 
-            sound_type = np.random.choice(["A", "B"])
+            sound_type = options.get("sound_type")
+            if sound_type is None:
+                sound_type = np.random.choice(["A", "B"])
+            elif sound_type not in ["A", "B"]:
+                raise ValueError(f"Invalid sound_type: {sound_type}")
             if sound_type == "A":
                 self.sound_cam._load_audio_file(SOUND_A_PATH)
                 self.target_box = self.box_right

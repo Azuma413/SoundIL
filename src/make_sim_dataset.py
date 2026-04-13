@@ -2,6 +2,7 @@ import numpy as np
 from PIL import Image
 import os
 import sys
+import copy
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from env.genesis_env import GenesisEnv
 from env.tasks.normal import joints_name, AGENT_DIM
@@ -9,6 +10,62 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 saved_cube_pos = None
 is_first_call = True
+
+
+def build_balanced_episode_configs(task, episode_num):
+    variants = None
+
+    if "soundShake" in task:
+        variants = [
+            {"reset_options": {"target_cube_name": cube_name}, "wrong_first": wrong_first}
+            for cube_name in ["cubeR", "cubeG"]
+            for wrong_first in [False, True]
+        ]
+    elif "soundAll" in task:
+        variants = [
+            {"reset_options": {"target_cube_name": cube_name, "sound_type": sound_type}}
+            for cube_name in ["cubeR", "cubeG"]
+            for sound_type in ["B", "C"]
+        ]
+    elif "soundSim" in task:
+        variants = [
+            {"reset_options": {"target_cube_name": cube_name, "sound_type": sound_type}}
+            for cube_name in ["cubeR", "cubeG"]
+            for sound_type in ["A", "B"]
+        ]
+    elif "soundDiff" in task:
+        variants = [
+            {"reset_options": {"sound_type": sound_type}}
+            for sound_type in ["A", "B"]
+        ]
+    elif "sound" in task:
+        variants = [
+            {"reset_options": {"target_cube_name": cube_name}}
+            for cube_name in ["cubeR", "cubeG"]
+        ]
+    elif "normal" in task and "fix" not in task:
+        variants = [
+            {"reset_options": {"color": color}}
+            for color in ["red", "green", "blue"]
+        ]
+
+    if not variants:
+        return [{"reset_options": None} for _ in range(episode_num)]
+
+    episode_configs = []
+    full_cycles, remainder = divmod(episode_num, len(variants))
+
+    for _ in range(full_cycles):
+        cycle_variants = [copy.deepcopy(variant) for variant in variants]
+        np.random.shuffle(cycle_variants)
+        episode_configs.extend(cycle_variants)
+
+    if remainder:
+        cycle_variants = [copy.deepcopy(variant) for variant in variants]
+        np.random.shuffle(cycle_variants)
+        episode_configs.extend(cycle_variants[:remainder])
+
+    return episode_configs
 
 def expert_policy(env, stage, target_cube_name=None):
     global saved_cube_pos, is_first_call
@@ -146,11 +203,14 @@ def initialize_dataset(env: GenesisEnv) -> LeRobotDataset:
 def main(task, stage_dict, observation_height=480, observation_width=640, episode_num=1, show_viewer=False, sound_config=None):
     env = GenesisEnv(task=task, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer, sound_config=sound_config)
     dataset = initialize_dataset(env)
+    episode_configs = build_balanced_episode_configs(task, episode_num)
     ep = 0
     while ep < episode_num:
         try:
             print(f"\n🎬 Starting episode {ep+1}")
-            env.reset()
+            episode_config = episode_configs[ep]
+            print(f"  Episode config: {episode_config}")
+            env.reset(options=episode_config.get("reset_options"))
             obs_dict = {"action": []}
             for key in env.observation_space.spaces.keys():
                 obs_dict[key] = []
@@ -168,9 +228,8 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
             if "soundShake" in task:
                 correct_cube = env._env.target_cube_name # "cubeR" or "cubeG"
                 other_cube = "cubeG" if correct_cube == "cubeR" else "cubeR"
-                
-                # 50%の確率で間違ったCubeを先に掴む
-                if np.random.rand() < 0.5:
+
+                if episode_config.get("wrong_first", False):
                     # 間違い -> 正解
                     # 間違いパート
                     stage_sequence.append(("hover", stage_dict["hover"], other_cube))

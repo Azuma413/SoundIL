@@ -48,7 +48,7 @@ class GenesisEnv(gym.Env):
             self._env.seed(seed)
         # resetは obs, info を返す
         self.step_count = 0
-        observation, info = self._env.reset()
+        observation, info = self._env.reset(options=options)
         # infoに is_success を追加 (初期値はFalse)
         info["is_success"] = False
         return observation, info

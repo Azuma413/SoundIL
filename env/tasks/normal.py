@@ -134,11 +134,21 @@ class NormalTask:
         target.set_pos(pos_tensor)
         target.set_quat(quat_tensor)
 
-    def reset(self):
+    def reset(self, options=None):
+        options = options or {}
         if self.fix_color:
             self.color = "red"
         else:
-            self.color = random.choice(["red", "green", "blue"])
+            available_colors = ["red", "green", "blue"][:self.num_cubes]
+            forced_color = options.get("color")
+            if forced_color is not None:
+                if forced_color not in available_colors:
+                    raise ValueError(
+                        f"Invalid forced color: {forced_color}. Choose from {available_colors}."
+                    )
+                self.color = forced_color
+            else:
+                self.color = random.choice(available_colors)
         if self.use_two_boxes:
             pos_tensor_l = torch.tensor([0.5, 0.15, 0.0], dtype=torch.float32, device=gs.device)
             pos_tensor_r = torch.tensor([0.5, -0.15, 0.0], dtype=torch.float32, device=gs.device)
