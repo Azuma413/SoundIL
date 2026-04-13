@@ -273,17 +273,13 @@ class SoundTask(NormalTask):
         if self.task_type == "sound":
             return "Listen to the sound and pick up the cube making sound, then place it in the box."
         elif self.task_type == "soundDiff":
-            return f"Listen to the sound ({self.current_sound_type}). If sound A, place in right box. If sound B, place in left box."
+            return f"Listen to the sound. If sound A, place in right box. If sound B, place in left box."
         elif self.task_type == "soundShake":
             return "Shake the cubes. Pick up the one that makes sound and place it in the box."
         elif self.task_type == "soundAll":
-            return f"Listen to find the cube making sound A, pick it up. When moved, if sound B plays, place in right box. If sound C, place in left box. (Current: {self.current_sound_type})"
+            return f"Listen to find the cube making sound A, pick it up. When moved, if sound B plays, place in right box. If sound C, place in left box. "
         elif self.task_type == "soundSim":
-            return (
-                f"Listen to find the speaker playing sound {self.current_sound_type}, "
-                "pick it up, and place it in the correct box. "
-                "Sound A goes to the right box, and sound B goes to the left box."
-            )
+            return f"Listen to find the speaker playing sound, pick it up, and place it in the correct box. Sound A goes to the right box, and sound B goes to the left box."
         return "Sound Task"
     
     def save_videos(self, file_name, fps=30):

@@ -6,6 +6,7 @@ from pathlib import Path
 import imageio
 import numpy as np
 import torch
+import cv2
 from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
 from lerobot.policies.act.modeling_act import ACTPolicy
 from lerobot.policies.pi0.modeling_pi0 import PI0Policy
@@ -42,22 +43,59 @@ def process_image_for_video(image_array, target_height, target_width):
         return np.zeros((target_height, target_width, 3), dtype=np.uint8)
     return image_array
 
+def normalize_to_uint8(image_array):
+    """Normalize a 2D or 3D array to uint8 for visualization."""
+    if image_array is None:
+        return None
+    image_array = np.asarray(image_array, dtype=np.float32)
+    min_val = np.min(image_array)
+    max_val = np.max(image_array)
+    if max_val > min_val:
+        normalized = (image_array - min_val) / (max_val - min_val) * 255.0
+    else:
+        normalized = np.zeros_like(image_array, dtype=np.float32)
+    return np.clip(normalized, 0, 255).astype(np.uint8)
+
+def render_combined_soundmap_heatmap(sound_img0, sound_img1, target_height, target_width):
+    """Merge sound map channels and render a heatmap from their sum."""
+    if sound_img0 is None and sound_img1 is None:
+        return np.zeros((target_height, target_width, 3), dtype=np.uint8)
+
+    sound0 = process_image_for_video(sound_img0, target_height, target_width)
+    sound1 = process_image_for_video(sound_img1, target_height, target_width)
+    full_sound_map = np.concatenate([sound0, sound1], axis=2).astype(np.float32)
+    summed_map = np.sum(full_sound_map, axis=2)
+    summed_map_uint8 = normalize_to_uint8(summed_map)
+    heatmap_bgr = cv2.applyColorMap(summed_map_uint8, cv2.COLORMAP_JET)
+    return cv2.cvtColor(heatmap_bgr, cv2.COLOR_BGR2RGB)
+
+def render_grayscale_spectrogram(spec_img, target_height, target_width):
+    """Render a spectrogram image in grayscale."""
+    if spec_img is None:
+        return np.zeros((target_height, target_width, 3), dtype=np.uint8)
+
+    spec_video_img = process_image_for_video(spec_img, target_height, target_width)
+    grayscale_spec = np.mean(spec_video_img.astype(np.float32), axis=2)
+    grayscale_spec_uint8 = normalize_to_uint8(grayscale_spec)
+    return np.stack([grayscale_spec_uint8] * 3, axis=-1)
+
 def combine_frames(np_obs, observation_height, observation_width):
     front_img = np_obs.get("observation.images.front")
     side_img = np_obs.get("observation.images.side")
-    sound_img1 = np_obs.get("observation.images.sound0")
-    sound_img2 = np_obs.get("observation.images.sound1")
+    sound_img0 = np_obs.get("observation.images.sound0")
+    sound_img1 = np_obs.get("observation.images.sound1")
+    spec_img = np_obs.get("observation.images.spec")
     front_video_img = process_image_for_video(front_img, observation_height, observation_width)
     side_video_img = process_image_for_video(side_img, observation_height, observation_width)
-    sound_video_img1 = process_image_for_video(sound_img1, observation_height, observation_width)
-    sound_video_img2 = process_image_for_video(sound_img2, observation_height, observation_width)
+    sound_heatmap_img = render_combined_soundmap_heatmap(sound_img0, sound_img1, observation_height, observation_width)
+    spectrogram_img = render_grayscale_spectrogram(spec_img, observation_height, observation_width)
     combined_h = observation_height * 2
     combined_w = observation_width * 2
     combined_frame = np.zeros((combined_h, combined_w, 3), dtype=np.uint8)
     combined_frame[0:observation_height, 0:observation_width] = front_video_img
     combined_frame[0:observation_height, observation_width:combined_w] = side_video_img
-    combined_frame[observation_height:combined_h, 0:observation_width] = sound_video_img1
-    combined_frame[observation_height:combined_h, observation_width:combined_w] = sound_video_img2
+    combined_frame[observation_height:combined_h, 0:observation_width] = sound_heatmap_img
+    combined_frame[observation_height:combined_h, observation_width:combined_w] = spectrogram_img
     return combined_frame
 
 def fill_missing_image_observations(converted_obs, dataset_features):
@@ -133,6 +171,8 @@ def main(training_name, observation_height, observation_width, episode_num, show
             preprocessor.reset()
             postprocessor.reset()
             numpy_observation, _ = env.reset()
+            episode_task_description = env.get_task_description()
+            print(f"Task description: {episode_task_description}")
             rewards = []
             frames = []  # Stores combined frames
             combined_frame = combine_frames(numpy_observation, observation_height, observation_width)
@@ -166,6 +206,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
                 
                 # Build observation frame in dataset format
                 observation_frame = build_dataset_frame(dataset.features, converted_obs, prefix=OBS_STR)
+                task_description = env.get_task_description()
                 
                 # Use predict_action to apply preprocessor, policy, and postprocessor
                 action_dict = predict_action(
@@ -175,7 +216,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
                     preprocessor=preprocessor,
                     postprocessor=postprocessor,
                     use_amp=policy.config.use_amp,
-                    task=task_name,
+                    task=task_description,
                     robot_type=None,
                 )
                 
@@ -278,12 +319,7 @@ if __name__ == "__main__":
     # 評価したい学習済みモデルの名前を指定
     # outputs/train/<training_name>/checkpoints/<checkpoint_step>
     training_name_list = [
-        "vqbet_sound-m4-f10-s0-p0_0",
-        "vqbet_sound-m4-f10-s0-p0_1",
-        "vqbet_sound-m4-f10-s0-p0_2",
-        "vqbet_sound-m4-f10-s1-p0_0",
-        "vqbet_sound-m4-f10-s1-p0_1",
-        "vqbet_sound-m4-f10-s1-p0_2",
+        "act_soundDiff-m4-f10-s2-p0_0",
         # "diffusion_normal-fix_1",
         # "diffusion_normal-fix_2",
         # "vqbet_normal-fix_0",
@@ -298,7 +334,7 @@ if __name__ == "__main__":
                 training_name=training_name,
                 observation_height=224,
                 observation_width=224,
-                episode_num=100,
+                episode_num=10,
                 show_viewer=False,
                 checkpoint_step=checkpoint_step,
             )
