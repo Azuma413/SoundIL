@@ -2,14 +2,23 @@ import numpy as np
 import torch
 import pyroomacoustics as pra
 import cv2
-from dataclasses import dataclass, field
-from typing import Optional, Tuple, List
-from scipy.signal import stft, istft 
+from dataclasses import dataclass
+from typing import Optional, Tuple, List, Literal
+from scipy.signal import stft, istft
 from numpy.fft import rfft, irfft, rfftfreq
 from scipy.ndimage import gaussian_filter
 from pydub import AudioSegment
-from sklearn.decomposition import NMF
+from torchnmf.nmf import NMF as TorchNMF
 import time
+
+
+REALTIME_NMF_INIT_MAX_ITER = 40
+REALTIME_NMF_WARM_MAX_ITER = 15
+REALTIME_NMF_TOL = 2e-2
+REALTIME_NMF_EPS = 1e-12
+REALTIME_NMF_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+REALTIME_NMF_BETA = 2
+REALTIME_NMF_MAX_MASK_RATIO = 0.2
 
 @dataclass
 class SoundConfig:
@@ -61,6 +70,13 @@ class SoundConfig:
     # Sound All mode
     sound_all_mode: bool = False
     sound_all_moving_audio_path: Optional[str] = None  # 移動時に切り替える音源ファイルのパス
+    # 共通音観測処理の設定
+    azimuth_offset_deg: float = 0.0
+    doa_distance_floor_m: float = 10.0
+    doa_distance_decay_exponent: float = 1.0
+    combined_map_power: float = 1.0
+    combined_map_gaussian_sigma: Optional[float] = None
+    peak_selection_mode: Literal["local_max", "argmax"] = "local_max"
 
 class SoundCamera:
     """音響シミュレーションとSoundMap生成を行うカメラクラス"""
@@ -109,6 +125,8 @@ class SoundCamera:
         self.moving_audio_cursor = 0
         if config.sound_all_mode and config.sound_all_moving_audio_path is not None:
             self._load_moving_audio_file(config.sound_all_moving_audio_path)
+        self._nmf_state = None
+        self._local_soundmap_grid = None
     
     @property
     def target(self):
@@ -124,6 +142,10 @@ class SoundCamera:
         self.prev_time = None
         self.velocity_history = []
         self.elapsed_time = 0.0
+        self.reset_nmf_state()
+
+    def reset_nmf_state(self):
+        self._nmf_state = None
 
     def get_target_velocity(self) -> float:
         """ターゲットの速度を計算"""
@@ -433,30 +455,7 @@ class SoundCamera:
             doa_mic_signals_list = mic_signals_list
         music_results = []
         for i in range(self.config.mic_array_num):
-            stft_results = []
-            for j in range(doa_mic_signals_list[i].shape[0]):
-                f, t, Zxx = stft(
-                    doa_mic_signals_list[i][j, :],
-                    fs=self.config.fs,
-                    nperseg=self.config.nfft,
-                    noverlap=self.config.nfft // 2
-                )
-                stft_results.append(Zxx)
-            Z = np.array(stft_results)
-            mic_array_positions = self._generate_circular_array(
-                self.mic_positions[i],
-                self.config.mics_per_array,
-                self.config.mic_radius
-            )
-            doa = pra.doa.MUSIC(
-                mic_array_positions,
-                fs=self.config.fs,
-                nfft=self.config.nfft,
-                c=self.config.sound_speed,
-                num_src=self.config.music_num_src
-            )
-            doa.locate_sources(Z)
-            music_results.append(doa)
+            music_results.append(self.estimate_music(doa_mic_signals_list[i], i))
         return mic_signals_list, music_results
     
     def _generate_circular_array(
@@ -475,30 +474,55 @@ class SoundCamera:
     def _generate_soundmap_from_doa(
         self,
         doa: pra.doa.MUSIC,
-        mic_center: List[float]
+        mic_center: List[float],
+        x_coords: Optional[np.ndarray] = None,
+        y_coords: Optional[np.ndarray] = None,
+        azimuth_offset_deg: Optional[float] = None,
+        distance_floor_m: Optional[float] = None,
+        distance_decay_exponent: Optional[float] = None,
     ) -> np.ndarray:
-        """DOA推定結果からSoundMapを生成（test.pyのmake_2dmap方式）"""
+        """DOA推定結果からSoundMapを生成"""
         spec = np.log10(np.mean(doa.Pssl, axis=1))
-        spec /= np.sum(spec) # リファレンスコードのmake_2dmap内の正規化
-        # マップの解像度
-        map_scale = self.config.observation_height / (2*self.config.mic_array_radius)
-        cx = mic_center[0] - 5.0 + self.config.mic_array_radius
-        cy = mic_center[1] - 5.0 + self.config.mic_array_radius
-        # 2Dマップを生成
-        sound_map = np.zeros((self.config.observation_height, self.config.observation_width))
-        for i in range(self.config.observation_height):
-            for j in range(self.config.observation_width):
-                # ピクセル座標を実空間座標に変換 (i, j -> x, y)
-                x = i / map_scale
-                y = j / map_scale
-                # マイク中心からの角度と距離
-                theta = np.arctan2((y - cy), (x - cx))
-                d = np.sqrt((y - cy)**2 + (x - cx)**2)
-                # 角度インデックスを計算
-                angle_idx = int(theta / (2 * np.pi / len(spec))) % len(spec)
-                # 距離による減衰を考慮した値を設定
-                sound_map[i, j] = spec[angle_idx] / (d + 10)
-        return sound_map
+        spec_sum = np.sum(spec)
+        if spec_sum != 0:
+            spec = spec / spec_sum
+        azimuth_offset_deg = self.config.azimuth_offset_deg if azimuth_offset_deg is None else azimuth_offset_deg
+        distance_floor_m = self.config.doa_distance_floor_m if distance_floor_m is None else distance_floor_m
+        distance_decay_exponent = (
+            self.config.doa_distance_decay_exponent
+            if distance_decay_exponent is None
+            else distance_decay_exponent
+        )
+
+        if x_coords is None or y_coords is None:
+            x_grid, y_grid = self._get_local_soundmap_grid()
+            cx = mic_center[0] - 5.0 + self.config.mic_array_radius
+            cy = mic_center[1] - 5.0 + self.config.mic_array_radius
+            theta = np.arctan2(y_grid - cy, x_grid - cx)
+            distance = np.hypot(y_grid - cy, x_grid - cx)
+        else:
+            x_grid, y_grid = np.meshgrid(
+                np.asarray(x_coords, dtype=np.float32),
+                np.asarray(y_coords, dtype=np.float32),
+                indexing="xy",
+            )
+            theta = np.arctan2(y_grid - mic_center[1], x_grid - mic_center[0]) + np.deg2rad(azimuth_offset_deg)
+            distance = np.hypot(y_grid - mic_center[1], x_grid - mic_center[0])
+
+        angle_idx = (theta / (2 * np.pi / len(spec))).astype(np.int32) % len(spec)
+        if distance_decay_exponent == 0.0:
+            distance_weight = np.ones_like(distance, dtype=np.float32)
+        else:
+            distance_weight = 1.0 / np.power(distance + distance_floor_m, distance_decay_exponent)
+        return (spec[angle_idx] * distance_weight).astype(np.float32)
+
+    def _get_local_soundmap_grid(self) -> Tuple[np.ndarray, np.ndarray]:
+        if self._local_soundmap_grid is None:
+            map_scale = self.config.observation_height / (2 * self.config.mic_array_radius)
+            x_coords = np.arange(self.config.observation_height, dtype=np.float32) / map_scale
+            y_coords = np.arange(self.config.observation_width, dtype=np.float32) / map_scale
+            self._local_soundmap_grid = np.meshgrid(x_coords, y_coords, indexing="ij")
+        return self._local_soundmap_grid
     
     def _convert_to_feature_image(self, sound_map: np.ndarray) -> np.ndarray:
         """
@@ -562,31 +586,33 @@ class SoundCamera:
         M = len(beamformed_signals)
         all_amp_specs = []
         all_phases = []
+        f_stft = None
+        t_stft = None
         for wav in beamformed_signals:
             f_stft, t_stft, Zxx = stft(wav, fs=fs, nperseg=nfft, noverlap=noverlap)
-            amp_spec = np.abs(Zxx) 
+            amp_spec = np.abs(Zxx).astype(np.float32, copy=False)
             phase = np.angle(Zxx)
             all_amp_specs.append(amp_spec)
             all_phases.append(phase)
-        concatenated_spec = np.concatenate(all_amp_specs, axis=1)
-        # F, T_total = concatenated_spec.shape
-        # T_frame = all_amp_specs[0].shape[1]
-        model = NMF(n_components=n_components, init='nndsvd', random_state=0, max_iter=1000, tol=1e-3)
-        W = model.fit_transform(concatenated_spec)
-        H = model.components_
+        concatenated_spec = np.concatenate(all_amp_specs, axis=1).astype(np.float32, copy=False)
+        W, H = self._fit_realtime_nmf(concatenated_spec, n_components)
         split_H = np.array_split(H, M, axis=1)
         stacked_H = np.stack(split_H, axis=0)
         min_activations = np.min(stacked_H, axis=0)
-        # NMF の W/H はスケール不定なので、H の絶対値しきい値は入力レベルに強く依存する。
-        # 実録音のように振幅が小さい場合でも mask が全ゼロにならないよう、最大値で正規化して判定する。
         max_activation = float(np.max(min_activations))
         if max_activation > 0.0:
             normalized_activations = min_activations / max_activation
         else:
             normalized_activations = min_activations
-        binary_mask = (normalized_activations > threshold).astype(float) # これが B_i
+        binary_mask = (normalized_activations > threshold).astype(np.float64)
+        mask_ratio = float(binary_mask.mean()) if binary_mask.size else 0.0
+        if mask_ratio > REALTIME_NMF_MAX_MASK_RATIO:
+            adaptive_threshold = float(
+                np.quantile(normalized_activations, 1.0 - REALTIME_NMF_MAX_MASK_RATIO)
+            )
+            binary_mask = (normalized_activations >= max(threshold, adaptive_threshold)).astype(np.float64)
         if not np.any(binary_mask) and max_activation > 0.0:
-            binary_mask = (normalized_activations >= np.max(normalized_activations)).astype(float)
+            binary_mask = (normalized_activations >= np.max(normalized_activations)).astype(np.float64)
         reconstructed_wavs = []
         for m in range(M):
             H_m = split_H[m]      # H_i^(m)
@@ -605,6 +631,65 @@ class SoundCamera:
         final_wav = np.mean(np.stack(padded_wavs, axis=0), axis=0)
         return final_wav, f_stft, t_stft # f_stft, t_stft はNMFの結果のものを返す（が、ここでは使わない）
 
+    def _fit_realtime_nmf(
+        self,
+        concatenated_spec: np.ndarray,
+        n_components: int,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        concatenated_spec = np.asarray(concatenated_spec, dtype=np.float32)
+        n_components = min(
+            int(n_components),
+            int(concatenated_spec.shape[0]),
+            int(concatenated_spec.shape[1]),
+        )
+        if n_components <= 0:
+            raise RuntimeError(f"Invalid NMF input shape: {concatenated_spec.shape}")
+
+        device_name = REALTIME_NMF_DEVICE
+        device = torch.device(device_name)
+        state = self._nmf_state
+        use_warm_start = (
+            state is not None
+            and state.get("shape") == concatenated_spec.shape
+            and state.get("n_components") == n_components
+            and state.get("device") == device_name
+            and isinstance(state.get("model"), TorchNMF)
+        )
+
+        model = state["model"] if use_warm_start and state is not None else None
+        if model is None:
+            model = TorchNMF(concatenated_spec.shape, rank=n_components).to(device)
+
+        target = torch.from_numpy(concatenated_spec).to(device)
+        try:
+            model.fit(
+                target,
+                beta=REALTIME_NMF_BETA,
+                tol=REALTIME_NMF_TOL,
+                max_iter=REALTIME_NMF_WARM_MAX_ITER if use_warm_start else REALTIME_NMF_INIT_MAX_ITER,
+                verbose=False,
+            )
+        except Exception:
+            self._nmf_state = None
+            model = TorchNMF(concatenated_spec.shape, rank=n_components).to(device)
+            model.fit(
+                target,
+                beta=REALTIME_NMF_BETA,
+                tol=REALTIME_NMF_TOL,
+                max_iter=REALTIME_NMF_INIT_MAX_ITER,
+                verbose=False,
+            )
+
+        W = model.H.detach().cpu().numpy().astype(np.float64, copy=False)
+        H = model.W.detach().cpu().numpy().T.astype(np.float64, copy=False)
+        self._nmf_state = {
+            "shape": concatenated_spec.shape,
+            "n_components": n_components,
+            "device": device_name,
+            "model": model,
+        }
+        return np.maximum(W, REALTIME_NMF_EPS), np.maximum(H, REALTIME_NMF_EPS)
+
     def _generate_spectrogram(
         self,
         sound_maps: List[np.ndarray], # (M, H, W) のリスト
@@ -614,62 +699,27 @@ class SoundCamera:
         NMFベースのスポットフォーミングを実行し、
         分離された音源のスペクトログラムを画像化して返す
         """
-        combined_map = np.sum(sound_maps, axis=0)
-        smoothed_map = gaussian_filter(combined_map, self.config.gaussian_sigma)
-        top_peaks = self._find_top_k_peaks(smoothed_map, self.config.num_peaks)
+        combined_map = self.build_combined_sound_map(
+            sound_maps,
+            power=self.config.combined_map_power,
+            gaussian_sigma=self.config.combined_map_gaussian_sigma,
+        )
+        top_peaks = self.compute_top_peaks(
+            combined_map,
+            topk=self.config.num_peaks,
+            selection_mode=self.config.peak_selection_mode,
+        )
         if not top_peaks:
             print("Spotforming: No peaks found.")
             return None
-        beamform_wav_per_peak = []
-        for (peak_x, peak_y) in top_peaks:
-            signals_for_this_peak = []
-            for i in range(self.config.mic_array_num):
-                mic_signals = mic_signals_list[i]
-                mic_pos_center = self.mic_positions[i] # アレイ中心 [x, y, z]
-                if mic_signals is None:
-                    print(f"Warning: Missing signals for mic array {i}. Skipping peak.")
-                    signals_for_this_peak = [] # このピークは無効
-                    break
-                mic_array_pos_abs = self._generate_circular_array(
-                    mic_pos_center,
-                    self.config.mics_per_array,
-                    self.config.mic_radius
-                ).T # (M_mics, 3)
-                center = np.mean(mic_array_pos_abs, axis=0)
-                mic_array_pos_rel = mic_array_pos_abs - center
-                theta_deg = self._pixel_to_azimuth(peak_x, peak_y, mic_pos_center)
-                beamformed_signal = self._ds_beamform(
-                    mic_signals,
-                    mic_array_pos_rel,
-                    theta_deg
-                )
-                signals_for_this_peak.append(beamformed_signal)
-            if signals_for_this_peak: # すべてのアレイで成功した場合
-                beamform_wav_per_peak.append(signals_for_this_peak)
-
-        if not beamform_wav_per_peak:
+        reconstructed = self.reconstruct_primary_peak(
+            mic_signals_list,
+            top_peaks,
+        )
+        if reconstructed is None:
             print("Spotforming: No valid peaks found after beamforming.")
             return None
-        signals_for_first_peak = beamform_wav_per_peak[0] # (M_arrays, N_samples)
-        final_wav, _, _ = self._perform_spotforming_nmf(
-            beamformed_signals=signals_for_first_peak,
-            fs=self.config.fs,
-            n_components=self.config.nmf_components,
-            threshold=self.config.nmf_threshold,
-            nfft=self.config.nfft,
-            noverlap=self.config.nfft // 2
-        )
-        final_wav = final_wav[:int(self.config.fs * self.config.processing_time)]
-        f, t, Zxx = stft(
-            final_wav, 
-            fs=self.config.fs, 
-            nperseg=self.config.nfft, 
-            noverlap=self.config.nfft // 2
-        )
-        power_spec = np.abs(Zxx)**2
-        spec_db = 10 * np.log10(power_spec + 1e-10)
-        spectrogram_image = self._convert_spectrogram_to_image(spec_db)
-        return spectrogram_image
+        return self.create_spectrogram_image_from_audio(reconstructed)
 
     def _convert_spectrogram_to_image(self, spec_db: np.ndarray) -> np.ndarray:
         """
@@ -724,6 +774,209 @@ class SoundCamera:
         room_size = 10.0
         map_scale = self.config.observation_height / room_size
         return [(peak_rows[i] / map_scale, peak_cols[i] / map_scale) for i in top_k_indices]
+
+    def estimate_music(
+        self,
+        mic_signals: np.ndarray,
+        array_index: int,
+    ) -> pra.doa.MUSIC:
+        z = np.asarray(
+            [
+                stft(
+                    mic_signals[ch],
+                    fs=self.config.fs,
+                    nperseg=self.config.nfft,
+                    noverlap=self.config.nfft // 2,
+                )[2]
+                for ch in range(mic_signals.shape[0])
+            ]
+        )
+        mic_positions = self._generate_circular_array(
+            self.mic_positions[array_index],
+            self.config.mics_per_array,
+            self.config.mic_radius,
+        )
+        doa = pra.doa.MUSIC(
+            mic_positions,
+            fs=self.config.fs,
+            nfft=self.config.nfft,
+            c=self.config.sound_speed,
+            num_src=self.config.music_num_src,
+        )
+        doa.locate_sources(z)
+        return doa
+
+    def build_combined_sound_map(
+        self,
+        sound_maps: List[np.ndarray],
+        power: Optional[float] = None,
+        gaussian_sigma: Optional[float] = None,
+    ) -> np.ndarray:
+        power = self.config.combined_map_power if power is None else power
+        gaussian_sigma = (
+            self.config.gaussian_sigma if gaussian_sigma is None else gaussian_sigma
+        )
+        combined = np.sum(
+            [np.power(sound_map, power, dtype=np.float32) for sound_map in sound_maps],
+            axis=0,
+        )
+        if gaussian_sigma and gaussian_sigma > 0.0:
+            combined = gaussian_filter(combined, sigma=gaussian_sigma)
+        return combined
+
+    def compute_top_peaks(
+        self,
+        combined_sound_map: np.ndarray,
+        topk: Optional[int] = None,
+        x_coords: Optional[np.ndarray] = None,
+        y_coords: Optional[np.ndarray] = None,
+        selection_mode: Optional[str] = None,
+    ) -> List[Tuple[float, float]]:
+        topk = self.config.num_peaks if topk is None else topk
+        selection_mode = self.config.peak_selection_mode if selection_mode is None else selection_mode
+        if selection_mode == "local_max":
+            return self._find_top_k_peaks(combined_sound_map, topk)
+
+        flat = combined_sound_map.ravel()
+        if flat.size == 0 or topk <= 0:
+            return []
+        topk = min(topk, flat.size)
+        indices = np.argpartition(flat, -topk)[-topk:]
+        indices = indices[np.argsort(flat[indices])[::-1]]
+        if x_coords is None or y_coords is None:
+            row_coords = np.arange(combined_sound_map.shape[0], dtype=np.float32)
+            col_coords = np.arange(combined_sound_map.shape[1], dtype=np.float32)
+        else:
+            row_coords = np.asarray(y_coords, dtype=np.float32)
+            col_coords = np.asarray(x_coords, dtype=np.float32)
+        return [
+            (float(col_coords[col]), float(row_coords[row]))
+            for row, col in (np.unravel_index(int(flat_index), combined_sound_map.shape) for flat_index in indices)
+        ]
+
+    def reconstruct_primary_peak(
+        self,
+        mic_signals_list: List[np.ndarray],
+        top_peaks: List[Tuple[float, float]],
+        array_relative_positions: Optional[List[np.ndarray]] = None,
+    ) -> Optional[np.ndarray]:
+        if not top_peaks:
+            return None
+
+        peak_x, peak_y = top_peaks[0]
+        beamformed_signals = []
+        for array_index, mic_signals in enumerate(mic_signals_list):
+            theta_deg = self._pixel_to_azimuth(
+                peak_x,
+                peak_y,
+                self.mic_positions[array_index],
+            )
+            if array_relative_positions is None:
+                mic_array_abs = self._generate_circular_array(
+                    self.mic_positions[array_index],
+                    self.config.mics_per_array,
+                    self.config.mic_radius,
+                ).T
+                relative_positions = mic_array_abs - np.mean(mic_array_abs, axis=0, keepdims=True)
+            else:
+                relative_positions = array_relative_positions[array_index]
+            beamformed_signals.append(
+                self._ds_beamform(
+                    mic_signals,
+                    relative_positions,
+                    theta_deg,
+                )
+            )
+
+        final_wav, _, _ = self._perform_spotforming_nmf(
+            beamformed_signals=beamformed_signals,
+            fs=self.config.fs,
+            n_components=self.config.nmf_components,
+            threshold=self.config.nmf_threshold,
+            nfft=self.config.nfft,
+            noverlap=self.config.nfft // 2,
+        )
+        return final_wav[: self.required_length]
+
+    def create_spectrogram_image_from_audio(self, audio: np.ndarray) -> np.ndarray:
+        _, _, zxx = stft(
+            audio,
+            fs=self.config.fs,
+            nperseg=self.config.nfft,
+            noverlap=self.config.nfft // 2,
+        )
+        image = self._convert_spectrogram_to_image(10 * np.log10(np.abs(zxx) ** 2 + 1e-10))
+        return self._pad_to_3ch(image)
+
+    def build_sound_observation_from_mic_signals(
+        self,
+        mic_signals_list: List[np.ndarray],
+        x_coords: Optional[np.ndarray] = None,
+        y_coords: Optional[np.ndarray] = None,
+        azimuth_offset_deg: Optional[float] = None,
+        distance_floor_m: Optional[float] = None,
+        distance_decay_exponent: Optional[float] = None,
+        combined_map_power: Optional[float] = None,
+        combined_map_gaussian_sigma: Optional[float] = None,
+        peak_selection_mode: Optional[str] = None,
+        array_relative_positions: Optional[List[np.ndarray]] = None,
+        create_spectrogram: bool = True,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        music_results = [
+            self.estimate_music(mic_signals, idx)
+            for idx, mic_signals in enumerate(mic_signals_list)
+        ]
+        sound_maps = [
+            self._generate_soundmap_from_doa(
+                music_results[idx],
+                self.mic_positions[idx],
+                x_coords=x_coords,
+                y_coords=y_coords,
+                azimuth_offset_deg=azimuth_offset_deg,
+                distance_floor_m=distance_floor_m,
+                distance_decay_exponent=distance_decay_exponent,
+            )
+            for idx in range(len(music_results))
+        ]
+
+        if not sound_maps:
+            zero_shape = (
+                self.config.observation_height,
+                self.config.observation_width,
+                3,
+            )
+            zeros = np.zeros(zero_shape, dtype=np.uint8)
+            return zeros, zeros, zeros
+
+        stacked_maps = np.stack(sound_maps, axis=2)
+        per_array_uint8 = self._normalize_to_uint8(stacked_maps)
+        sound0 = self._split_channels(per_array_uint8, 0, 3)
+        sound1 = self._split_channels(per_array_uint8, 3, 6)
+
+        if not create_spectrogram:
+            return sound0, sound1, np.zeros_like(sound0)
+
+        combined_map = self.build_combined_sound_map(
+            sound_maps,
+            power=combined_map_power,
+            gaussian_sigma=combined_map_gaussian_sigma,
+        )
+        top_peaks = self.compute_top_peaks(
+            combined_map,
+            x_coords=x_coords,
+            y_coords=y_coords,
+            selection_mode=peak_selection_mode,
+        )
+        reconstructed = self.reconstruct_primary_peak(
+            mic_signals_list,
+            top_peaks,
+            array_relative_positions=array_relative_positions,
+        )
+        if reconstructed is None:
+            spec = np.zeros_like(sound0)
+        else:
+            spec = self.create_spectrogram_image_from_audio(reconstructed)
+        return sound0, sound1, spec
     
     def _pixel_to_azimuth(
         self,
