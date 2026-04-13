@@ -83,14 +83,16 @@ class SoundCamera:
     
     def __init__(self, target, config: SoundConfig):
         self._target = None
-        self.elapsed_time = 0.0
-        self.target = target
         self.config = config
+        self.elapsed_time = 0.0
         self.frames = []
         # マイクロフォン位置の初期化
         self.mic_positions = self._generate_default_mic_positions()
         # 音声ファイルの読み込み
         self.audio_signal = None
+        self.moving_audio_signal = None
+        self._nmf_state = None
+        self._local_soundmap_grid = None
         if config.audio_file_path is not None:
             self._load_audio_file(config.audio_file_path)
         # 時間的平滑化用の過去フレーム
@@ -121,12 +123,10 @@ class SoundCamera:
         self.velocity_history = []
         
         # sound_all_mode用：移動時の音源信号
-        self.moving_audio_signal = None
         self.moving_audio_cursor = 0
         if config.sound_all_mode and config.sound_all_moving_audio_path is not None:
             self._load_moving_audio_file(config.sound_all_moving_audio_path)
-        self._nmf_state = None
-        self._local_soundmap_grid = None
+        self.target = target
     
     @property
     def target(self):
@@ -142,6 +142,13 @@ class SoundCamera:
         self.prev_time = None
         self.velocity_history = []
         self.elapsed_time = 0.0
+        self.signal_buffer = np.zeros(self.required_length, dtype=np.float32)
+        self.audio_cursor = 0
+        self.moving_audio_cursor = 0
+        self.call_count = 0
+        self.cached_sound_map0 = None
+        self.cached_sound_map1 = None
+        self.cached_spectrogram = None
         self.reset_nmf_state()
 
     def reset_nmf_state(self):
@@ -184,6 +191,7 @@ class SoundCamera:
         if np.abs(signal).max() > 0:
             signal = signal / np.abs(signal).max()
         self.audio_signal = signal
+        self.audio_cursor = 0
 
     def _load_moving_audio_file(self, audio_file_path: str):
         """移動時の音声ファイルを読み込む（sound_all_mode用）"""

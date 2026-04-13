@@ -42,6 +42,12 @@ def expert_policy(env, stage, target_cube_name=None):
             elif task.target_cube_name == "cubeG":
                 target_cube_pos = task.cubeG.get_pos().cpu().numpy()
             target_box_pos = task.target_box.get_pos().cpu().numpy()
+        elif task.task_type == "soundSim":
+            if task.target_cube_name == "cubeR":
+                target_cube_pos = task.cubeR.get_pos().cpu().numpy()
+            elif task.target_cube_name == "cubeG":
+                target_cube_pos = task.cubeG.get_pos().cpu().numpy()
+            target_box_pos = task.target_box.get_pos().cpu().numpy()
     
     # NormalTask or fallback
     if target_cube_pos is None:
@@ -232,9 +238,7 @@ if __name__ == "__main__":
     # 新フォーマット例: soundShake-m4-f6-s2-p4
     
     task_candidates = [
-        "soundAll-m4-f10-s2-p0",
-        "soundAll-m4-f10-s2-p0",
-        "soundAll-m4-f10-s2-p0",
+        "soundSim-m4-f10-s2-p0",
     ]
     
     for task in task_candidates:
@@ -251,7 +255,7 @@ if __name__ == "__main__":
         # GenesisEnv内で解析されるため、sound_configはNoneで渡す
         sound_config = None 
         
-        main(episode_num=100, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
+        main(episode_num=10, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
 
 
 # normal: 音は関係なく，赤，青，緑のCubeから指定された色のCubeを箱に入れるタスク
@@ -260,7 +264,8 @@ if __name__ == "__main__":
 # soundDiff: 1つのスピーカについて，音Aが鳴っている場合は右の箱，音Bが鳴っている場合は左の箱に入れるタスク
 # soundShake: 2つの見た目が同じスピーカについて，移動させた際に音が鳴る方を箱の中に入れるタスク
 # soundAll: 2つの見た目が同じスピーカのうち音Aが鳴っている方をピックし，移動時に音Bなら右の箱，音Cなら左の箱に入れるタスク
-# soundReal: 2つの見た目が同じスピーカのうち，片方から特定の音（音A or B）が流れる。音がなっている方のスピーカーをつかみ、音Aなら右の箱、Bなら左の箱に入れるタスク
+# soundSim: 2つの見た目が同じスピーカのうち，片方から特定の音（音A or B）が流れる。音がなっている方のスピーカーをつかみ、音Aなら右の箱、Bなら左の箱に入れるタスク
+# soundSimでは音A=sounds/0.wav, 音B=sounds/1.wav
 
 # m: マイクロフォンアレイ数 3-6
 # f: 更新頻度 Hz

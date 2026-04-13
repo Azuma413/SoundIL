@@ -98,7 +98,7 @@ class GenesisEnv(gym.Env):
         elif "sound" in self.task:
             # task format example: "soundShake-m4-f6-s2-p4"
             parts = self.task.split("-")
-            task_type = parts[0] # "sound", "soundDiff", "soundShake"
+            task_type = parts[0] # "sound", "soundDiff", "soundShake", "soundAll", "soundSim"
             
             if sound_config is None:
                 # 新しいフォーマットの解析
