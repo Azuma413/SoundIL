@@ -901,6 +901,7 @@ class RealSoundObservationSource:
             peak_selection_mode="argmax",
             array_relative_positions=self.array_relative_positions,
             create_spectrogram=True,
+            is_real=True,
         )
 
 

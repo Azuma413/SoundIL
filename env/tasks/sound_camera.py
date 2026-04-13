@@ -586,7 +586,8 @@ class SoundCamera:
         n_components,
         threshold=0.01,
         nfft=512,
-        noverlap=256
+        noverlap=256,
+        is_real=False,
     ):
         """
         論文のセクションIII-B に記載のNMFベースのスポットフォーミングを実行する
@@ -607,20 +608,23 @@ class SoundCamera:
         split_H = np.array_split(H, M, axis=1)
         stacked_H = np.stack(split_H, axis=0)
         min_activations = np.min(stacked_H, axis=0)
-        max_activation = float(np.max(min_activations))
-        if max_activation > 0.0:
-            normalized_activations = min_activations / max_activation
+        if is_real:
+            max_activation = float(np.max(min_activations))
+            if max_activation > 0.0:
+                normalized_activations = min_activations / max_activation
+            else:
+                normalized_activations = min_activations
+            binary_mask = (normalized_activations > threshold).astype(np.float64)
+            mask_ratio = float(binary_mask.mean()) if binary_mask.size else 0.0
+            if mask_ratio > REALTIME_NMF_MAX_MASK_RATIO:
+                adaptive_threshold = float(
+                    np.quantile(normalized_activations, 1.0 - REALTIME_NMF_MAX_MASK_RATIO)
+                )
+                binary_mask = (normalized_activations >= max(threshold, adaptive_threshold)).astype(np.float64)
+            if not np.any(binary_mask) and max_activation > 0.0:
+                binary_mask = (normalized_activations >= np.max(normalized_activations)).astype(np.float64)
         else:
-            normalized_activations = min_activations
-        binary_mask = (normalized_activations > threshold).astype(np.float64)
-        mask_ratio = float(binary_mask.mean()) if binary_mask.size else 0.0
-        if mask_ratio > REALTIME_NMF_MAX_MASK_RATIO:
-            adaptive_threshold = float(
-                np.quantile(normalized_activations, 1.0 - REALTIME_NMF_MAX_MASK_RATIO)
-            )
-            binary_mask = (normalized_activations >= max(threshold, adaptive_threshold)).astype(np.float64)
-        if not np.any(binary_mask) and max_activation > 0.0:
-            binary_mask = (normalized_activations >= np.max(normalized_activations)).astype(np.float64)
+            binary_mask = (min_activations > threshold).astype(np.float64)
         reconstructed_wavs = []
         for m in range(M):
             H_m = split_H[m]      # H_i^(m)
@@ -867,6 +871,7 @@ class SoundCamera:
         mic_signals_list: List[np.ndarray],
         top_peaks: List[Tuple[float, float]],
         array_relative_positions: Optional[List[np.ndarray]] = None,
+        is_real: bool = False,
     ) -> Optional[np.ndarray]:
         if not top_peaks:
             return None
@@ -903,6 +908,7 @@ class SoundCamera:
             threshold=self.config.nmf_threshold,
             nfft=self.config.nfft,
             noverlap=self.config.nfft // 2,
+            is_real=is_real,
         )
         return final_wav[: self.required_length]
 
@@ -929,6 +935,7 @@ class SoundCamera:
         peak_selection_mode: Optional[str] = None,
         array_relative_positions: Optional[List[np.ndarray]] = None,
         create_spectrogram: bool = True,
+        is_real: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         music_results = [
             self.estimate_music(mic_signals, idx)
@@ -979,6 +986,7 @@ class SoundCamera:
             mic_signals_list,
             top_peaks,
             array_relative_positions=array_relative_positions,
+            is_real=is_real,
         )
         if reconstructed is None:
             spec = np.zeros_like(sound0)
