@@ -301,7 +301,7 @@ if __name__ == "__main__":
     # 新フォーマット例: soundShake-m4-f6-s2-p4
     
     task_candidates = [
-        "soundShake-m4-f10-s2-p0",
+        "sound-m4-f10-s2-p0",
     ]
     
     for task in task_candidates:
@@ -318,7 +318,7 @@ if __name__ == "__main__":
         # GenesisEnv内で解析されるため、sound_configはNoneで渡す
         sound_config = None 
         
-        main(episode_num=5, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
+        main(episode_num=100, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
 
 
 # normal: 音は関係なく，赤，青，緑のCubeから指定された色のCubeを箱に入れるタスク
