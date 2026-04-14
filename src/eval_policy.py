@@ -118,7 +118,33 @@ def normalize_checkpoint_step(checkpoint_step):
         return checkpoint_step_str.zfill(6)
     return checkpoint_step_str
 
-def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last"):
+def infer_dataset_name(training_name):
+    """Infer dataset name from a training run name.
+
+    Supported patterns:
+    - <policy>_<dataset>
+    - <policy>_<dataset>_seed<seed>
+    """
+    parts = training_name.split("_")
+    if len(parts) < 2:
+        raise ValueError(f"Could not infer dataset name from training name: {training_name}")
+
+    dataset_parts = parts[1:]
+    if dataset_parts and dataset_parts[-1].startswith("seed"):
+        dataset_parts = dataset_parts[:-1]
+
+    if not dataset_parts:
+        raise ValueError(f"Could not infer dataset name from training name: {training_name}")
+
+    return "_".join(dataset_parts)
+
+def infer_task_name(dataset_name):
+    """Infer Genesis task name from dataset name."""
+    if "_" not in dataset_name:
+        return dataset_name
+    return dataset_name.rsplit("_", 1)[0]
+
+def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last", dataset_name=None):
     checkpoint_step = normalize_checkpoint_step(checkpoint_step)
     output_directory = Path(f"outputs/eval/{training_name}_{checkpoint_step}")
     output_directory.mkdir(parents=True, exist_ok=True)
@@ -143,8 +169,8 @@ def main(training_name, observation_height, observation_width, episode_num, show
         return
     policy.to(device)
     policy.eval()
-    task_name = training_name.split("_")[1]
-    dataset_name = f"{task_name}_{training_name.split('_')[-1]}"
+    dataset_name = dataset_name or infer_dataset_name(training_name)
+    task_name = infer_task_name(dataset_name)
     print(f"Detected task name: {task_name}")
     # Load dataset to get statistics for normalization
     dataset_path = Path(f"datasets/{dataset_name}")
@@ -333,6 +359,11 @@ if __name__ == "__main__":
         default="100000",
         help='Checkpoint step under outputs/train/<training_name>/checkpoints/. Use "last" if needed.',
     )
+    parser.add_argument(
+        "--dataset-name",
+        default=None,
+        help="Dataset directory name under datasets/. If omitted, it is inferred from training-name.",
+    )
     parser.add_argument("--observation-height", type=int, default=224)
     parser.add_argument("--observation-width", type=int, default=224)
     parser.add_argument("--episode-num", type=int, default=100)
@@ -346,4 +377,5 @@ if __name__ == "__main__":
         episode_num=args.episode_num,
         show_viewer=args.show_viewer,
         checkpoint_step=str(args.checkpoint_step),
+        dataset_name=args.dataset_name,
     )

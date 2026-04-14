@@ -11,3 +11,4 @@ uv.lock
 debug/
 old_datasets/
 old_outputs/
+.codex
