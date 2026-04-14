@@ -2,7 +2,7 @@
 
 export CUDA_VISIBLE_DEVICES=0
 export DATASET_NAME=sound-m4-f10-s1-p0_0
-# pi0は60000ステップ．soundShakeとsoundSimは200000ステップ．
+# soundShakeとsoundSimは200000ステップ．
 export STEPS=100000
 export SAVE_FREQ=10000
 
@@ -13,7 +13,7 @@ export SAVE_FREQ=10000
 export POLICY=vqbet
 # uv run lerobot-train --dataset.repo_id=local/${DATASET_NAME} --dataset.root=datasets/${DATASET_NAME} --policy.type=$POLICY --output_dir=outputs/train/${POLICY}_${DATASET_NAME} --job_name=${POLICY}_${DATASET_NAME} --policy.device=cuda --policy.push_to_hub=false --wandb.enable=true --wandb.disable_artifact=true --dataset.video_backend=pyav --batch_size=32 --steps=$STEPS --save_freq=$SAVE_FREQ --seed=$SEED
 # export POLICY=pi0
-# uv run lerobot-train --dataset.repo_id=local/${DATASET_NAME} --dataset.root=datasets/${DATASET_NAME} --policy.type=$POLICY --output_dir=outputs/train/${POLICY}_${DATASET_NAME} --job_name=${POLICY}_${DATASET_NAME} --policy.device=cuda --policy.push_to_hub=false --wandb.enable=true --wandb.disable_artifact=true --dataset.video_backend=pyav --batch_size=8 --steps=$STEPS --save_freq=$SAVE_FREQ --seed=$SEED --policy.pretrained_path=lerobot/pi0_base --policy.gradient_checkpointing=true --policy.dtype=bfloat16
+# uv run lerobot-train --dataset.repo_id=local/${DATASET_NAME} --dataset.root=datasets/${DATASET_NAME} --policy.type=$POLICY --output_dir=outputs/train/${POLICY}_${DATASET_NAME} --job_name=${POLICY}_${DATASET_NAME} --policy.device=cuda --policy.push_to_hub=false --wandb.enable=true --wandb.disable_artifact=true --dataset.video_backend=pyav --batch_size=4 --steps=$STEPS --save_freq=$SAVE_FREQ --seed=$SEED --policy.pretrained_path=lerobot/pi0_base --policy.gradient_checkpointing=true --policy.dtype=bfloat16
 
 export SEED=0
 uv run lerobot-train --dataset.repo_id=local/${DATASET_NAME} --dataset.root=datasets/${DATASET_NAME} --policy.type=$POLICY --output_dir=outputs/train/${POLICY}_${DATASET_NAME} --job_name=${POLICY}_${DATASET_NAME} --policy.device=cuda --policy.push_to_hub=false --wandb.enable=true --wandb.disable_artifact=true --dataset.video_backend=pyav --batch_size=32 --steps=$STEPS --save_freq=$SAVE_FREQ --seed=$SEED

@@ -10,11 +10,13 @@ usage() {
     cat <<'EOF'
 Usage:
   ./docker/run.sh login
+  ./docker/run.sh login [options]
   ./docker/run.sh train --dataset-name <name> [options]
   ./docker/run.sh eval --training-name <name> [options]
   ./docker/run.sh train-eval --dataset-name <name> [options]
 
 Common options:
+  --gpu <list>             CUDA_VISIBLE_DEVICES inside container (e.g. 0 or 1,2)
   --dataset-name <name>     Dataset directory under datasets/
   --training-name <name>    Directory under outputs/train/ (required for eval)
   --policy <name>           act | diffusion | vqbet | pi0
@@ -35,7 +37,8 @@ EOF
 
 default_batch_size() {
     case "$1" in
-        act|pi0) echo 8 ;;
+        pi0) echo 4 ;;
+        act) echo 8 ;;
         diffusion|vqbet) echo 32 ;;
         *)
             echo "Unsupported policy: $1" >&2
@@ -304,6 +307,21 @@ host_main() {
     fi
     shift || true
 
+    CONTAINER_CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+    FORWARD_ARGS=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --gpu)
+                CONTAINER_CUDA_VISIBLE_DEVICES="$2"
+                shift 2
+                ;;
+            *)
+                FORWARD_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+
     ensure_image
 
     DOCKER_ARGS=(
@@ -315,7 +333,7 @@ host_main() {
         --shm-size=8g
         -w "${CONTAINER_WORKDIR}"
         -v "${ROOT_DIR}:${CONTAINER_WORKDIR}"
-        -e CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+        -e CUDA_VISIBLE_DEVICES="${CONTAINER_CUDA_VISIBLE_DEVICES}"
         -e WANDB_API_KEY="${WANDB_API_KEY:-}"
         -e HF_TOKEN="${HF_TOKEN:-}"
     )
@@ -336,7 +354,7 @@ host_main() {
         DOCKER_ARGS+=(-v "${HOME}/.netrc:/root/.netrc:ro")
     fi
 
-    exec docker "${DOCKER_ARGS[@]}" "${IMAGE_TAG}" bash docker/run.sh "__inside__" "${MODE}" "$@"
+    exec docker "${DOCKER_ARGS[@]}" "${IMAGE_TAG}" bash docker/run.sh "__inside__" "${MODE}" "${FORWARD_ARGS[@]}"
 }
 
 if [[ "${1:-}" == "__inside__" ]]; then

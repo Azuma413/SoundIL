@@ -27,6 +27,7 @@
 ```bash
 ./docker/run.sh train-eval \
   --dataset-name sound-m4-f10-s1-p0_0 \
+  --gpu 1 \
   --policy vqbet \
   --seeds 0,1,2 \
   --steps 100000
