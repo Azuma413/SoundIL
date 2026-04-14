@@ -9,3 +9,4 @@ datasets/
 .env
 uv.lock
 debug/
+old_datasets/

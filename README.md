@@ -28,7 +28,7 @@
 - CUDA対応のNvidia GPU
 ### 環境のセットアップ
 ```bash
-git clone -b dev/sound --recurse-submodules https://github.com/Azuma413/SoundIL.git
+git clone -b dev/corl --recurse-submodules https://github.com/Azuma413/SoundIL.git
 cd SoundIL
 uv sync
 uv pip install -e "Genesis"

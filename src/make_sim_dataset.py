@@ -17,9 +17,8 @@ def build_balanced_episode_configs(task, episode_num):
 
     if "soundShake" in task:
         variants = [
-            {"reset_options": {"target_cube_name": cube_name}, "wrong_first": wrong_first}
+            {"reset_options": {"target_cube_name": cube_name}}
             for cube_name in ["cubeR", "cubeG"]
-            for wrong_first in [False, True]
         ]
     elif "soundAll" in task:
         variants = [
@@ -66,6 +65,14 @@ def build_balanced_episode_configs(task, episode_num):
         episode_configs.extend(cycle_variants[:remainder])
 
     return episode_configs
+
+def get_left_and_right_cube_names(task):
+    cube_positions = {
+        "cubeR": task.cubeR.get_pos().cpu().numpy(),
+        "cubeG": task.cubeG.get_pos().cpu().numpy(),
+    }
+    ordered_names = sorted(cube_positions, key=lambda name: cube_positions[name][1], reverse=True)
+    return ordered_names[0], ordered_names[1]
 
 def expert_policy(env, stage, target_cube_name=None):
     global saved_cube_pos, is_first_call
@@ -227,29 +234,26 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
             
             if "soundShake" in task:
                 correct_cube = env._env.target_cube_name # "cubeR" or "cubeG"
-                other_cube = "cubeG" if correct_cube == "cubeR" else "cubeR"
+                left_cube, right_cube = get_left_and_right_cube_names(env._env)
 
-                if episode_config.get("wrong_first", False):
-                    # 間違い -> 正解
-                    # 間違いパート
-                    stage_sequence.append(("hover", stage_dict["hover"], other_cube))
-                    stage_sequence.append(("stabilize", stage_dict["stabilize"], other_cube))
-                    stage_sequence.append(("grasp", stage_dict["grasp"], other_cube))
-                    stage_sequence.append(("lift", stage_dict["lift"], other_cube))
-                    stage_sequence.append(("drop", 30, other_cube)) # 持ち上げて落とす
-                    
-                    # 正解パート
-                    stage_sequence.append(("hover", stage_dict["hover"], correct_cube))
-                    stage_sequence.append(("stabilize", stage_dict["stabilize"], correct_cube))
-                    stage_sequence.append(("grasp", stage_dict["grasp"], correct_cube))
-                    stage_sequence.append(("lift", stage_dict["lift"], correct_cube))
-                    stage_sequence.append(("to_box", stage_dict["to_box"], correct_cube))
-                    stage_sequence.append(("stabilize_box", stage_dict["stabilize_box"], correct_cube))
-                    stage_sequence.append(("release", stage_dict["release"], correct_cube))
+                # soundShakeでは必ず左側のCubeから持ち上げる
+                if left_cube != correct_cube:
+                    stage_sequence.append(("hover", stage_dict["hover"], left_cube))
+                    stage_sequence.append(("stabilize", stage_dict["stabilize"], left_cube))
+                    stage_sequence.append(("grasp", stage_dict["grasp"], left_cube))
+                    stage_sequence.append(("lift", stage_dict["lift"], left_cube))
+                    stage_sequence.append(("drop", 30, left_cube)) # 持ち上げて落とす
+
+                    stage_sequence.append(("hover", stage_dict["hover"], right_cube))
+                    stage_sequence.append(("stabilize", stage_dict["stabilize"], right_cube))
+                    stage_sequence.append(("grasp", stage_dict["grasp"], right_cube))
+                    stage_sequence.append(("lift", stage_dict["lift"], right_cube))
+                    stage_sequence.append(("to_box", stage_dict["to_box"], right_cube))
+                    stage_sequence.append(("stabilize_box", stage_dict["stabilize_box"], right_cube))
+                    stage_sequence.append(("release", stage_dict["release"], right_cube))
                 else:
-                    # 最初から正解
                     for stage in stage_dict.keys():
-                        stage_sequence.append((stage, stage_dict[stage], correct_cube))
+                        stage_sequence.append((stage, stage_dict[stage], left_cube))
             else:
                 # 通常のタスク
                 for stage in stage_dict.keys():
@@ -297,7 +301,7 @@ if __name__ == "__main__":
     # 新フォーマット例: soundShake-m4-f6-s2-p4
     
     task_candidates = [
-        "soundSim-m4-f10-s2-p0",
+        "soundShake-m4-f10-s2-p0",
     ]
     
     for task in task_candidates:
@@ -314,7 +318,7 @@ if __name__ == "__main__":
         # GenesisEnv内で解析されるため、sound_configはNoneで渡す
         sound_config = None 
         
-        main(episode_num=10, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
+        main(episode_num=5, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
 
 
 # normal: 音は関係なく，赤，青，緑のCubeから指定された色のCubeを箱に入れるタスク

@@ -75,6 +75,12 @@ class SoundTask(NormalTask):
             num_cubes=num_cubes,
             use_two_boxes=use_two_boxes
         )
+
+    def _reset_soundshake_cube_layout(self):
+        # soundShakeでは左右を固定し、左側からの最初のpickが
+        # target_cube_nameだけで正解/不正解の50/50になるようにする
+        self.set_random_state(self.cubeR, (0.3, 0.7), (0.05, 0.3), 0.04)
+        self.set_random_state(self.cubeG, (0.3, 0.7), (-0.3, -0.05), 0.04)
     
     def _build_scene(self, show_viewer):
         """
@@ -181,6 +187,8 @@ class SoundTask(NormalTask):
             self.current_sound_type = sound_type
 
         elif self.task_type == "soundShake":
+            self._reset_soundshake_cube_layout()
+
             # 2つのCubeのうち、どちらかがターゲット
             target_name = options.get("target_cube_name")
             if target_name is None:
