@@ -119,10 +119,10 @@ class RobotCommunicationNode:
     async def initialize_robot(self):
         try:
             config = IlohaConfig(
-                left_dynamixel_port="/dev/ttyUSB3",
-                left_robstride_port="/dev/ttyUSB2",
+                left_dynamixel_port="/dev/ttyUSB_LeftDynamixel",
+                left_robstride_port="/dev/ttyUSB3",
                 right_robstride_port="/dev/ttyUSB0",
-                right_dynamixel_port="/dev/ttyUSB1",
+                right_dynamixel_port="/dev/ttyUSB_RightDynamixel",
                 enable_left_arm=False,
                 enable_right_arm=True,
                 max_relative_target_1=0.03, # yaw

@@ -76,13 +76,17 @@ DEFAULT_CAMERA_CONFIGS = {
 
 SOUNDREAL_IMAGE_KEYS = ("front", "side", "sound0", "sound1", "spec")
 
+# 順序に意味はない。以下のコマンドで調べられる。
+# uv run workspace/tamago_test.py --list-devices
 TAMAGO_DEVICE_IDS = [0, 1, 2, 3]
+# 右上のTAMAGOから時計回りに並べたときのhwインデックス
+RECTANGLE_HW_ORDER_CLOCKWISE = [2, 1, 0, 5]
+
 AZIMUTH_OFFSET_DEG = 0.0
 RECTANGLE_LONG_SIDE_M = 1.2
 RECTANGLE_SHORT_SIDE_M = 0.6
 ARRAY_HEIGHT_M = 0.1
 ROOM_CENTER_XY = np.array([5.0, 5.0], dtype=np.float32)
-RECTANGLE_HW_ORDER_CLOCKWISE = [2, 0, 1, 3]
 MAP_SIZE_M = 1.4
 DOA_DISTANCE_FLOOR_M = 0.0
 DOA_DISTANCE_DECAY_EXPONENT = 0.0
