@@ -1,7 +1,5 @@
+import argparse
 import os
-# setting for swan/swift
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-
 from pathlib import Path
 import imageio
 import numpy as np
@@ -113,7 +111,15 @@ def fill_missing_image_observations(converted_obs, dataset_features):
         shape = tuple(feature["shape"])
         converted_obs[short_key] = np.zeros(shape, dtype=np.uint8)
 
+def normalize_checkpoint_step(checkpoint_step):
+    """Pad numeric checkpoint steps to six digits while preserving names like 'last'."""
+    checkpoint_step_str = str(checkpoint_step)
+    if checkpoint_step_str.isdigit():
+        return checkpoint_step_str.zfill(6)
+    return checkpoint_step_str
+
 def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last"):
+    checkpoint_step = normalize_checkpoint_step(checkpoint_step)
     output_directory = Path(f"outputs/eval/{training_name}_{checkpoint_step}")
     output_directory.mkdir(parents=True, exist_ok=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -316,25 +322,28 @@ def main(training_name, observation_height, observation_width, episode_num, show
             f.write(f"  Std:  {action_stats['std']}\n")
 
 if __name__ == "__main__":
-    # 評価したい学習済みモデルの名前を指定
-    # outputs/train/<training_name>/checkpoints/<checkpoint_step>
-    training_name_list = [
-        "act_soundDiff-m4-f10-s2-p0_0",
-        # "diffusion_normal-fix_1",
-        # "diffusion_normal-fix_2",
-        # "vqbet_normal-fix_0",
-        # "vqbet_sound-m4-f10-s2-p0_2",
-    ]
+    parser = argparse.ArgumentParser(description="Evaluate a trained policy checkpoint.")
+    parser.add_argument(
+        "--training-name",
+        default="act_soundDiff-m4-f10-s2-p0_0",
+        help="Model directory name under outputs/train/.",
+    )
+    parser.add_argument(
+        "--checkpoint-step",
+        default="100000",
+        help='Checkpoint step under outputs/train/<training_name>/checkpoints/. Use "last" if needed.',
+    )
+    parser.add_argument("--observation-height", type=int, default=224)
+    parser.add_argument("--observation-width", type=int, default=224)
+    parser.add_argument("--episode-num", type=int, default=100)
+    parser.add_argument("--show-viewer", action="store_true")
+    args = parser.parse_args()
 
-    eval_step_list = ["100000"]
-
-    for training_name in training_name_list:
-        for checkpoint_step in eval_step_list:
-            main(
-                training_name=training_name,
-                observation_height=224,
-                observation_width=224,
-                episode_num=10,
-                show_viewer=False,
-                checkpoint_step=checkpoint_step,
-            )
+    main(
+        training_name=args.training_name,
+        observation_height=args.observation_height,
+        observation_width=args.observation_width,
+        episode_num=args.episode_num,
+        show_viewer=args.show_viewer,
+        checkpoint_step=str(args.checkpoint_step),
+    )
