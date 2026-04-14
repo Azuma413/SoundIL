@@ -13,11 +13,6 @@
 ./docker/run.sh login
 ```
 
-コンテナ内で次を順に実行します。
-
-- `uv run huggingface-cli login`
-- `uv run wandb login`
-
 以下は存在する場合に自動でマウントされるため、認証情報を再利用できます。
 
 - `${HOME}/.cache/huggingface`

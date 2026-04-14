@@ -3,8 +3,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONTAINER_WORKDIR="/workspace/SoundIL"
-IMAGE_TAG="${IMAGE_TAG:-soundil:latest}"
+CONTAINER_WORKDIR="/workspace/myproject"
+IMAGE_TAG="${IMAGE_TAG:-myproject:latest}"
 
 usage() {
     cat <<'EOF'

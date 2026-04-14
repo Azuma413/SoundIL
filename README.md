@@ -27,6 +27,12 @@
 - Ubuntu 24.04
 - CUDA対応のNvidia GPU
 ### 環境のセットアップ
+- 必要なパッケージのインストール
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install portaudio19-dev ffmpeg -y
+```
+- レポジトリのクローンと環境構築
 ```bash
 git clone -b dev/corl --recurse-submodules https://github.com/Azuma413/SoundIL.git
 cd SoundIL
@@ -34,18 +40,10 @@ uv sync
 uv pip install -e "Genesis"
 uv pip install -e "lerobot/[pi]"
 ```
-- huggingfaceにログイン
+- ログイン
 ```bash
 uv run huggingface-cli login
-```
-- wandbにログイン
-```bash
 uv run wandb login
-```
-- 必要なパッケージのインストール
-```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install portaudio19-dev ffmpeg -y
 ```
 
 ## 学習の実行
@@ -66,5 +64,3 @@ uv run lerobot-train \
   --batch_size=8 \
   --steps=100000
 ```
-
-diffusionはbatch size64で100000 step学習
