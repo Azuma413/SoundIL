@@ -224,7 +224,7 @@ if __name__ == "__main__":
     main()
 
 # 壊れているか確認
-# uv run python src/fix_data.py soundShake-m4-f10-s2-p0_0 --check-only
+# uv run src/fix_data.py soundShake-m4-f10-s2-p0_0 --check-only
 
 # 壊れているファイルを修復（--no-backupで.bakバックアップなし）
-# uv run python src/fix_data.py soundShake-m4-f10-s2-p0_0
+# uv run src/fix_data.py soundShake-m4-f10-s2-p0_0
