@@ -32,27 +32,23 @@ git clone -b dev/corl --recurse-submodules https://github.com/Azuma413/SoundIL.g
 cd SoundIL
 uv sync
 uv pip install -e "Genesis"
-# piが採用しているtransformersはカスタムされているので，他のオプションとは両立しないかも
 uv pip install -e "lerobot/[pi]"
-# Linuxなら多分下はやらなくて良い
-uv pip uninstall torch torchvision
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 ```
-- huggingfaceへのログイン
+- huggingfaceにログイン
 ```bash
 uv run huggingface-cli login
 ```
-- ffmpegのインストール
-```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install ffmpeg -y
-```
-
-## 学習の実行
-先にwandbにログインしてください．
+- wandbにログイン
 ```bash
 uv run wandb login
 ```
+- 必要なパッケージのインストール
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install portaudio19-dev ffmpeg -y
+```
+
+## 学習の実行
 POLICYはact, diffusion, vqbet, pi0のいずれかを指定します．
 ```bash
 export DATASET_NAME=[データセット名]
