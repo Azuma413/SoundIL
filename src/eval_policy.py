@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import cv2
 from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
-from lerobot.policies.act.modeling_act import ACTPolicy
+from lerobot.policies.act.modeling_act import ACTPolicy, ACTTemporalEnsembler
 from lerobot.policies.pi0.modeling_pi0 import PI0Policy
 from lerobot.policies.vqbet.modeling_vqbet import VQBeTPolicy
 from lerobot.policies.factory import make_pre_post_processors
@@ -160,6 +160,17 @@ def main(training_name, observation_height, observation_width, episode_num, show
         policy = DiffusionPolicy.from_pretrained(pretrained_policy_path)
     elif model_type == "act":
         policy = ACTPolicy.from_pretrained(pretrained_policy_path)
+        policy.config.n_action_steps = 1
+        policy.config.temporal_ensemble_coeff = 0.01
+        policy.temporal_ensembler = ACTTemporalEnsembler(
+            policy.config.temporal_ensemble_coeff, policy.config.chunk_size
+        )
+        policy.reset()
+        print(
+            "Overriding ACT eval config: "
+            f"n_action_steps={policy.config.n_action_steps}, "
+            f"temporal_ensemble_coeff={policy.config.temporal_ensemble_coeff}"
+        )
     elif model_type == "pi0":
         policy = PI0Policy.from_pretrained(pretrained_policy_path)
     elif model_type == "vqbet":
