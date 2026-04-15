@@ -324,6 +324,9 @@ host_main() {
 
     ensure_image
 
+    HOST_UID="$(id -u)"
+    HOST_GID="$(id -g)"
+
     DOCKER_ARGS=(
         run
         --rm
@@ -354,7 +357,18 @@ host_main() {
         DOCKER_ARGS+=(-v "${HOME}/.netrc:/root/.netrc:ro")
     fi
 
-    exec docker "${DOCKER_ARGS[@]}" "${IMAGE_TAG}" bash docker/run.sh "__inside__" "${MODE}" "${FORWARD_ARGS[@]}"
+    docker "${DOCKER_ARGS[@]}" "${IMAGE_TAG}" bash docker/run.sh "__inside__" "${MODE}" "${FORWARD_ARGS[@]}"
+    STATUS=$?
+
+    # Training/eval runs inside the container as root, so restore host ownership
+    # on bind-mounted artifacts before returning control to the caller.
+    docker run --rm \
+        -v "${ROOT_DIR}:${CONTAINER_WORKDIR}" \
+        -w "${CONTAINER_WORKDIR}" \
+        "${IMAGE_TAG}" \
+        bash -lc "if [[ -d outputs ]]; then chown -R ${HOST_UID}:${HOST_GID} outputs; fi" >/dev/null 2>&1 || true
+
+    exit "${STATUS}"
 }
 
 if [[ "${1:-}" == "__inside__" ]]; then

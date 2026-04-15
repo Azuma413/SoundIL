@@ -26,11 +26,12 @@
 
 ```bash
 ./docker/run.sh train-eval \
-  --dataset-name sound-m4-f10-s1-p0_0 \
-  --gpu 1 \
-  --policy vqbet \
+  --dataset-name sound-m4-f10-s2-p0_0 \
+  --gpu 0 \
+  --policy diffusion \
   --seeds 0,1,2 \
-  --steps 100000
+  --steps 100000 \
+  --save-freq 10000
 ```
 
 主なオプション:
