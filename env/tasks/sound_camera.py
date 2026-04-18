@@ -49,6 +49,8 @@ class SoundConfig:
     use_soundmap: bool = True # 音環境マップ（sound0, sound1）を返すか
     nmf_components: int = 50 # NMFの成分数
     nmf_threshold: float = 1.6e-3 # NMFマスクの閾値
+    spectrogram_display_min_hz: float = 0.0
+    spectrogram_display_max_hz: Optional[float] = 4000.0
     # 画像処理オプション
     use_gaussian_filter: bool = False # SoundMapにガウシアンフィルタ
     use_temporal_smoothing: bool = False # 時間的平滑化
@@ -737,8 +739,12 @@ class SoundCamera:
         Returns:
             spectrogram_image: (observation_height, observation_width) の画像 (uint8)
         """
-        min_val = np.min(spec_db)
-        max_val = np.max(spec_db)
+        finite_values = spec_db[np.isfinite(spec_db)]
+        if finite_values.size == 0:
+            spec_db = np.zeros_like(spec_db, dtype=np.float32)
+            finite_values = spec_db.ravel()
+        min_val = np.percentile(finite_values, 2.0)
+        max_val = np.percentile(finite_values, 98.0)
         if max_val > min_val:
             normalized = (spec_db - min_val) / (max_val - min_val) * 255
         else:
@@ -907,12 +913,20 @@ class SoundCamera:
         return final_wav[: self.required_length]
 
     def create_spectrogram_image_from_audio(self, audio: np.ndarray) -> np.ndarray:
-        _, _, zxx = stft(
+        freqs, _, zxx = stft(
             audio,
             fs=self.config.fs,
             nperseg=self.config.nfft,
             noverlap=self.config.nfft // 2,
         )
+        min_hz = max(0.0, float(self.config.spectrogram_display_min_hz))
+        max_hz = self.config.spectrogram_display_max_hz
+        if max_hz is None:
+            max_hz = float(freqs[-1]) if freqs.size else self.config.fs / 2.0
+        max_hz = min(float(max_hz), float(freqs[-1]) if freqs.size else self.config.fs / 2.0)
+        band_mask = (freqs >= min_hz) & (freqs <= max_hz)
+        if np.any(band_mask):
+            zxx = zxx[band_mask]
         image = self._convert_spectrogram_to_image(10 * np.log10(np.abs(zxx) ** 2 + 1e-10))
         return self._pad_to_3ch(image)
 

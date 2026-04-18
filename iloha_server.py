@@ -18,20 +18,29 @@ from lerobot.cameras.realsense.configuration_realsense import RealSenseCameraCon
 from lerobot.cameras import make_cameras_from_configs
 from soundreal_utils import (
     DEFAULT_CAMERA_CONFIGS,
+    OBSERVATION_HEIGHT,
+    OBSERVATION_WIDTH,
     SOUNDREAL_TASK_NAME,
+    SOUND_FILES,
+    SOUND_LABELS,
     LoopingStereoPlayer,
     RealSoundObservationSource,
     RIGHT_ARM_FEATURE_NAMES,
+    SoundEpisodeCondition,
     build_soundreal_dataset_features,
     decode_right_arm_action_packet,
     full_action_to_right_feature_dict,
     get_camera_configs,
     is_soundreal_task,
     make_full_action_from_right,
+    preprocess_cam_high_frame,
     preprocess_camera_frame,
     right_arm_full_slice,
-    sample_sound_episode_condition,
 )
+
+USE_RIGHT_SPEAKER = True
+FIXED_SOUND_INDEX: Optional[int] = 0 # 0(buzzer) or 1(piyopiyo) or None(0,1)
+EPISODE_NUM = 23
 
 TASK = SOUNDREAL_TASK_NAME
 
@@ -80,6 +89,12 @@ class RobotCommunicationNode:
         self.awaiting_recording_trigger = False
         self.first_action_time: Optional[float] = None
         self.rng = np.random.default_rng()
+
+    def _get_saved_episode_count(self) -> int:
+        """現在のデータセットに保存済みのエピソード数を返す"""
+        if self.current_dataset is None:
+            return 0
+        return int(getattr(self.current_dataset, "num_episodes", 0))
 
     @staticmethod
     def _make_right_arm_only_action(right_arm_action: np.ndarray) -> np.ndarray:
@@ -175,9 +190,29 @@ class RobotCommunicationNode:
         if not self.soundreal_enabled:
             return
         self._ensure_sound_runtime()
-        self.current_sound_condition = sample_sound_episode_condition(self.rng)
+        if self.sound_source is not None:
+            self.sound_source.reset_nmf_state()
+        next_episode_index = self._get_saved_episode_count()
+        sound_index = (
+            FIXED_SOUND_INDEX
+            if FIXED_SOUND_INDEX is not None
+            else 0 if next_episode_index < EPISODE_NUM // 2 else 1
+        )
+        if sound_index not in SOUND_FILES:
+            raise ValueError(
+                f"Invalid FIXED_SOUND_INDEX={sound_index}. "
+                f"Available sound indices: {sorted(SOUND_FILES.keys())}"
+            )
+        speaker = "right" if USE_RIGHT_SPEAKER else "left"
+        self.current_sound_condition = SoundEpisodeCondition(
+            sound_index=sound_index,
+            sound_label=SOUND_LABELS[sound_index],
+            sound_path=SOUND_FILES[sound_index],
+            speaker=speaker,
+        )
         print(
             "[soundreal] Episode stimulus prepared: "
+            f"episode={next_episode_index + 1}/{EPISODE_NUM}, "
             f"speaker={self.current_sound_condition.speaker}, "
             f"sound={self.current_sound_condition.sound_label}"
         )
@@ -228,9 +263,14 @@ class RobotCommunicationNode:
                     "action": {"dtype": "float32", "shape": (14,), "names": JOINT_NAMES},
                 }
                 for key in self.camera_configs.keys():
+                    image_shape = (
+                        (OBSERVATION_HEIGHT, OBSERVATION_WIDTH, 3)
+                        if key == "cam_high"
+                        else (480, 640, 3)
+                    )
                     dataset_features[f"observation.images.{key}"] = {
                         "dtype": "video",
-                        "shape": (480, 640, 3),
+                        "shape": image_shape,
                         "names": ("height", "width", "channels")
                     }
             image_feature_count = sum(
@@ -306,8 +346,17 @@ class RobotCommunicationNode:
                 await websocket.send(json.dumps(response))
                 return
             self.current_dataset.save_episode()
+            saved_episode_count = self._get_saved_episode_count()
+            print(f"エピソード保存完了 ({saved_episode_count}/{EPISODE_NUM})")
+            if saved_episode_count >= EPISODE_NUM:
+                await self._finish_dataset_and_shutdown_robot()
+                response = {
+                    "status": "recording_complete",
+                    "message": f"{EPISODE_NUM}エピソードを保存しました。データセットを保存し、ロボットを終了しました。",
+                }
+                await websocket.send(json.dumps(response))
+                return
             await self._prepare_next_episode()
-            print("エピソード保存完了")
             response = {"status": "save_complete", "message": "エピソードを保存しました。次のエピソードの準備ができています"}
             await websocket.send(json.dumps(response))
         except Exception as e:
@@ -380,6 +429,20 @@ class RobotCommunicationNode:
         self.recording_start_time = None
         self.recording_ready = False
 
+    async def _finish_dataset_and_shutdown_robot(self):
+        """規定エピソード数に到達したあと、データセットとロボットを終了する"""
+        print(f"{EPISODE_NUM}エピソードに到達しました。データセットを確定し、ロボットを終了します。")
+        await self._full_cleanup_recording()
+        await self.cleanup_connection()
+        if self.robot_connected and self.robot:
+            try:
+                await self.robot.disconnect()
+                print("ロボット接続切断")
+            except Exception as e:
+                print(f"ロボット切断エラー: {e}")
+            finally:
+                self.robot_connected = False
+
     def _capture_latest_observation(self) -> dict:
         """カメラの最新フレームを非同期制御を止めずに取得する"""
         if self.robot is None:
@@ -393,7 +456,12 @@ class RobotCommunicationNode:
             except Exception:
                 # 最新フレームがまだ無い場合のみ、新規フレーム待ちにフォールバックする
                 frame = camera.async_read(timeout_ms=self.CAMERA_MAX_FRAME_AGE_MS)
-            obs[name] = preprocess_camera_frame(frame) if self.soundreal_enabled else frame
+            if self.soundreal_enabled:
+                obs[name] = preprocess_camera_frame(frame)
+            elif name == "cam_high":
+                obs[name] = preprocess_cam_high_frame(frame)
+            else:
+                obs[name] = frame
 
         if self.soundreal_enabled:
             if self.sound_source is None:

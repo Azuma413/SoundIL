@@ -26,6 +26,9 @@ DEFAULT_SOUND_CONFIG = SoundConfig()
 
 OBSERVATION_HEIGHT = 224
 OBSERVATION_WIDTH = 224
+CAM_HIGH_CAPTURE_WIDTH = 1280
+CAM_HIGH_CAPTURE_HEIGHT = 720
+CAM_HIGH_CROP_SIZE = 500
 CAMERA_FPS = 30
 AUDIO_FPS = 10
 AUDIO_SAMPLE_RATE = 16000
@@ -56,8 +59,8 @@ SOUNDREAL_CAMERA_CONFIGS = {
 DEFAULT_CAMERA_CONFIGS = {
     "cam_high": {
         "serial_number_or_name": "029522250086",
-        "width": 640,
-        "height": 480,
+        "width": CAM_HIGH_CAPTURE_WIDTH,
+        "height": CAM_HIGH_CAPTURE_HEIGHT,
         "fps": CAMERA_FPS,
     },
     "cam_left_wrist": {
@@ -78,9 +81,9 @@ SOUNDREAL_IMAGE_KEYS = ("front", "side", "sound0", "sound1", "spec")
 
 # 順序に意味はない。以下のコマンドで調べられる。
 # uv run workspace/tamago_test.py --list-devices
-TAMAGO_DEVICE_IDS = [0, 1, 2, 3]
+TAMAGO_DEVICE_IDS = [0, 1, 4, 9]
 # 右上のTAMAGOから時計回りに並べたときのhwインデックス
-RECTANGLE_HW_ORDER_CLOCKWISE = [2, 1, 0, 5]
+RECTANGLE_HW_ORDER_CLOCKWISE = [3, 1, 0, 5]
 
 AZIMUTH_OFFSET_DEG = 0.0
 RECTANGLE_LONG_SIDE_M = 1.2
@@ -202,6 +205,22 @@ def decode_right_arm_action_packet(data: bytes) -> tuple[int, Optional[np.ndarra
     right[4] = -right[4]
     right[5] = -right[5]
     return mode, np.asarray(right, dtype=np.float32)
+
+
+def preprocess_cam_high_frame(
+    frame: np.ndarray,
+    crop_size: int = CAM_HIGH_CROP_SIZE,
+) -> np.ndarray:
+    image = np.asarray(frame)
+    height, width = image.shape[:2]
+    if height < crop_size or width < crop_size:
+        raise ValueError(
+            f"Frame is too small for center-bottom crop: "
+            f"frame={width}x{height}, crop={crop_size}x{crop_size}"
+        )
+    x0 = max(0, (width - crop_size) // 2)
+    y0 = max(0, height - crop_size)
+    return preprocess_camera_frame(image[y0 : y0 + crop_size, x0 : x0 + crop_size])
 
 
 def preprocess_camera_frame(frame: np.ndarray) -> np.ndarray:
@@ -608,6 +627,7 @@ class RealSoundObservationSource:
         self._audio_lock = threading.Lock()
         self._lock = threading.Lock()
         self._capture_lock = threading.Lock()
+        self._sound_camera_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._ready_event = threading.Event()
         self._capture_thread: Optional[threading.Thread] = None
@@ -660,7 +680,7 @@ class RealSoundObservationSource:
         self.late_cycle_count = 0
         self.last_capture_error = None
         self.last_process_error = None
-        self.sound_camera.reset_nmf_state()
+        self.reset_nmf_state()
         for key, value in self.cached_images.items():
             self.cached_images[key] = np.zeros_like(value)
         self.start_monotonic = time.perf_counter()
@@ -697,6 +717,10 @@ class RealSoundObservationSource:
     def get_latest_images(self) -> dict[str, np.ndarray]:
         with self._lock:
             return {key: value.copy() for key, value in self.cached_images.items()}
+
+    def reset_nmf_state(self) -> None:
+        with self._sound_camera_lock:
+            self.sound_camera.reset_nmf_state()
 
     def get_latest_debug_snapshot(self) -> tuple[dict[str, np.ndarray], dict[str, float | int | str | None]]:
         with self._audio_lock:
@@ -893,19 +917,20 @@ class RealSoundObservationSource:
 
     def _build_images_from_snapshot(self, snapshot: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         mic_signals_list = [audio.T for audio in snapshot]
-        return self.sound_camera.build_sound_observation_from_mic_signals(
-            mic_signals_list,
-            x_coords=self.map_x_coords,
-            y_coords=self.map_y_coords,
-            azimuth_offset_deg=AZIMUTH_OFFSET_DEG,
-            distance_floor_m=DOA_DISTANCE_FLOOR_M,
-            distance_decay_exponent=DOA_DISTANCE_DECAY_EXPONENT,
-            combined_map_power=COMBINED_MAP_POWER,
-            combined_map_gaussian_sigma=1.0,
-            peak_selection_mode="argmax",
-            array_relative_positions=self.array_relative_positions,
-            create_spectrogram=True,
-        )
+        with self._sound_camera_lock:
+            return self.sound_camera.build_sound_observation_from_mic_signals(
+                mic_signals_list,
+                x_coords=self.map_x_coords,
+                y_coords=self.map_y_coords,
+                azimuth_offset_deg=AZIMUTH_OFFSET_DEG,
+                distance_floor_m=DOA_DISTANCE_FLOOR_M,
+                distance_decay_exponent=DOA_DISTANCE_DECAY_EXPONENT,
+                combined_map_power=COMBINED_MAP_POWER,
+                combined_map_gaussian_sigma=1.0,
+                peak_selection_mode="argmax",
+                array_relative_positions=self.array_relative_positions,
+                create_spectrogram=True,
+            )
 
 
 def create_sound_debug_panel(
