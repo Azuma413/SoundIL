@@ -38,9 +38,9 @@ from soundreal_utils import (
     right_arm_full_slice,
 )
 
-USE_RIGHT_SPEAKER = True
-FIXED_SOUND_INDEX: Optional[int] = 0 # 0(buzzer) or 1(piyopiyo) or None(0,1)
-EPISODE_NUM = 23
+USE_RIGHT_SPEAKER = False
+FIXED_SOUND_INDEX: Optional[int] = 1 # 0(buzzer) or 1(piyopiyo) or None(0,1)
+EPISODE_NUM = 50
 
 TASK = SOUNDREAL_TASK_NAME
 

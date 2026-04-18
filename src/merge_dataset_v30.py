@@ -1,12 +1,13 @@
 from dataclasses import dataclass
 from pathlib import Path
-from lerobot.datasets.dataset_tools import merge_datasets
+from lerobot.datasets.aggregate import aggregate_datasets
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 @dataclass
 class MergeConfig:
     name_list: list[str]
     merged_name: str
+    video_files_size_in_mb: float = 0.001
 
 def main(cfg: MergeConfig) -> None:
     dataset_root = "datasets"
@@ -16,14 +17,16 @@ def main(cfg: MergeConfig) -> None:
     for repo_id, data_path in zip(repo_ids, dataset_path):
         datasets.append(LeRobotDataset(repo_id, root=data_path))
     output_dir = Path(dataset_root) / cfg.merged_name
-    merged_dataset = merge_datasets(
-        datasets,
-        output_repo_id=f"local/{cfg.merged_name}",
-        output_dir=output_dir,
+    aggregate_datasets(
+        repo_ids=[dataset.repo_id for dataset in datasets],
+        aggr_repo_id=f"local/{cfg.merged_name}",
+        roots=[dataset.root for dataset in datasets],
+        aggr_root=output_dir,
+        video_files_size_in_mb=cfg.video_files_size_in_mb,
     )
 
 if __name__ == "__main__":
     main(MergeConfig(
-        name_list=["kitcut_1ep","kitcut_2ep","kitcut_8ep","kitcut_11ep","kitcut_32ep","kitcut_46ep"],
-        merged_name="kitcut-dataset"
+        name_list=["left_a50b50", "right_a50b50"],
+        merged_name="soundReal-m4-f10-s2-p0"
     ))
