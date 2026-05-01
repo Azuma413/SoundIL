@@ -64,3 +64,14 @@ uv run lerobot-train \
   --batch_size=8 \
   --steps=100000
 ```
+## t-SNEプロット
+`color-by`は [`sound_type`, `sound_coordinate`, `success`] の中から選べる．\
+`sound_coordinate`を使う場合は以下のように，axisを指定する．\
+--color-by sound_coordinate --sound-coordinate-axis y
+```bash
+uv run plot_tsne.py \
+  --training-name act_sound-m4-f10-s2-p0_0_seed0 \
+  --sound-coordinate-axis y \
+  --checkpoint-step 100000 \
+  --episode-num 10 \
+```
