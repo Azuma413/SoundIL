@@ -51,6 +51,7 @@ class SoundConfig:
     nmf_threshold: float = 1.6e-3 # NMFマスクの閾値
     spectrogram_display_min_hz: float = 0.0
     spectrogram_display_max_hz: Optional[float] = 4000.0
+    spectrogram_normalization: Literal["minmax", "percentile"] = "percentile"
     # 画像処理オプション
     use_gaussian_filter: bool = False # SoundMapにガウシアンフィルタ
     use_temporal_smoothing: bool = False # 時間的平滑化
@@ -739,12 +740,16 @@ class SoundCamera:
         Returns:
             spectrogram_image: (observation_height, observation_width) の画像 (uint8)
         """
-        finite_values = spec_db[np.isfinite(spec_db)]
-        if finite_values.size == 0:
-            spec_db = np.zeros_like(spec_db, dtype=np.float32)
-            finite_values = spec_db.ravel()
-        min_val = np.percentile(finite_values, 2.0)
-        max_val = np.percentile(finite_values, 98.0)
+        if self.config.spectrogram_normalization == "minmax":
+            min_val = np.min(spec_db)
+            max_val = np.max(spec_db)
+        else:
+            finite_values = spec_db[np.isfinite(spec_db)]
+            if finite_values.size == 0:
+                spec_db = np.zeros_like(spec_db, dtype=np.float32)
+                finite_values = spec_db.ravel()
+            min_val = np.percentile(finite_values, 2.0)
+            max_val = np.percentile(finite_values, 98.0)
         if max_val > min_val:
             normalized = (spec_db - min_val) / (max_val - min_val) * 255
         else:

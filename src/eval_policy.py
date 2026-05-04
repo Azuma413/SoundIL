@@ -5,6 +5,7 @@ import imageio
 import numpy as np
 import torch
 import cv2
+import re
 from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
 from lerobot.policies.act.modeling_act import ACTPolicy, ACTTemporalEnsembler
 from lerobot.policies.pi0.modeling_pi0 import PI0Policy
@@ -19,6 +20,7 @@ import sys
 import time
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from env.genesis_env import GenesisEnv
+from env.tasks.sound_camera import SoundConfig
 
 def process_image_for_video(image_array, target_height, target_width):
     """Process an image array for video recording, ensuring it's HWC, RGB, uint8."""
@@ -144,6 +146,59 @@ def infer_task_name(dataset_name):
         return dataset_name
     return dataset_name.rsplit("_", 1)[0]
 
+def build_legacy_eval_sound_config(task_name):
+    """Build the sound config used before real-environment spectrogram changes."""
+    if "sound" not in task_name:
+        return None
+
+    match = re.search(r"-m(\d+)-f(\d+)-s(\d+)-p(\d+)", task_name)
+    if not match:
+        raise ValueError(f"Invalid task format: {task_name}")
+
+    m, f, s, p = map(int, match.groups())
+    mic_array_num = m
+    update_freq = max(1, int(30 / f))
+
+    use_spectrogram = False
+    use_soundmap = True
+    if s == 0:
+        mic_array_num = 0
+        use_soundmap = False
+    elif s == 1:
+        use_spectrogram = False
+    elif s == 2:
+        use_spectrogram = True
+    elif s == 3:
+        use_spectrogram = True
+        use_soundmap = False
+
+    use_gaussian_filter = False
+    use_temporal_smoothing = False
+    use_feature = False
+    if p == 1:
+        use_gaussian_filter = True
+    elif p == 2:
+        use_temporal_smoothing = True
+    elif p == 3:
+        use_gaussian_filter = True
+        use_temporal_smoothing = True
+    elif p == 4:
+        use_feature = True
+
+    return SoundConfig(
+        mic_array_num=mic_array_num,
+        update_freq=update_freq,
+        use_spectrogram=use_spectrogram,
+        use_soundmap=use_soundmap,
+        use_gaussian_filter=use_gaussian_filter,
+        use_temporal_smoothing=use_temporal_smoothing,
+        use_feature=use_feature,
+        audio_file_path="sounds/1.wav",
+        spectrogram_display_min_hz=0.0,
+        spectrogram_display_max_hz=None,
+        spectrogram_normalization="minmax",
+    )
+
 def main(training_name, observation_height, observation_width, episode_num, show_viewer, checkpoint_step="last", dataset_name=None):
     checkpoint_step = normalize_checkpoint_step(checkpoint_step)
     output_directory = Path(f"outputs/eval/{training_name}_{checkpoint_step}")
@@ -197,7 +252,14 @@ def main(training_name, observation_height, observation_width, episode_num, show
         dataset_stats=dataset.meta.stats,
     )
     
-    env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
+    eval_sound_config = build_legacy_eval_sound_config(task_name)
+    env = GenesisEnv(
+        task=task_name,
+        observation_height=observation_height,
+        observation_width=observation_width,
+        show_viewer=show_viewer,
+        sound_config=eval_sound_config,
+    )
     print("Policy Input Features:", policy.config.input_features)
     print("Environment Observation Space:", env.observation_space)
     print("Policy Output Features:", policy.config.output_features)
@@ -325,7 +387,13 @@ def main(training_name, observation_height, observation_width, episode_num, show
             print(f"⚠️ Error occurred during episode {ep+1}: {e}")
             print("🔄 Retrying episode...")
             env.close()
-            env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
+            env = GenesisEnv(
+                task=task_name,
+                observation_height=observation_height,
+                observation_width=observation_width,
+                show_viewer=show_viewer,
+                sound_config=eval_sound_config,
+            )
             continue
     env.close()
     success_rate = (success_num / episode_num) * 100
