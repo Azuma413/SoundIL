@@ -1,9 +1,68 @@
 import gymnasium as gym
 import warnings
-import re # Added import
+import re
 from env.tasks.normal import NormalTask
 from env.tasks.sound import SoundTask
 from env.tasks.sound_camera import SoundConfig
+
+
+def build_sound_config_from_task(task, use_legacy_sound_config=False):
+    if "sound" not in task:
+        return None
+
+    match = re.search(r"-m(\d+)-f(\d+)-s(\d+)-p(\d+)", task)
+    if not match:
+        raise ValueError(f"Invalid task format: {task}")
+
+    m, f, s, p = map(int, match.groups())
+    mic_array_num = m
+    update_freq = max(1, int(30 / f))
+
+    use_spectrogram = False
+    use_soundmap = True
+    if s == 0:
+        mic_array_num = 0
+        use_soundmap = False
+    elif s == 1:
+        use_spectrogram = False
+    elif s == 2:
+        use_spectrogram = True
+    elif s == 3:
+        use_spectrogram = True
+        use_soundmap = False
+
+    use_gaussian_filter = False
+    use_temporal_smoothing = False
+    use_feature = False
+    if p == 1:
+        use_gaussian_filter = True
+    elif p == 2:
+        use_temporal_smoothing = True
+    elif p == 3:
+        use_gaussian_filter = True
+        use_temporal_smoothing = True
+    elif p == 4:
+        use_feature = True
+
+    config_kwargs = {
+        "mic_array_num": mic_array_num,
+        "update_freq": update_freq,
+        "use_spectrogram": use_spectrogram,
+        "use_soundmap": use_soundmap,
+        "use_gaussian_filter": use_gaussian_filter,
+        "use_temporal_smoothing": use_temporal_smoothing,
+        "use_feature": use_feature,
+        "audio_file_path": "sounds/1.wav",
+    }
+    if use_legacy_sound_config:
+        config_kwargs.update(
+            spectrogram_display_min_hz=0.0,
+            spectrogram_display_max_hz=None,
+            spectrogram_normalization="minmax",
+        )
+
+    return SoundConfig(**config_kwargs)
+
 
 class GenesisEnv(gym.Env):
     metadata = {"render_modes": ["rgb_array"], "render_fps": 30}
@@ -16,6 +75,7 @@ class GenesisEnv(gym.Env):
             render_mode=None,
             reset_freq=10,
             sound_config=None,
+            use_legacy_sound_config=False,
     ):
         super().__init__()
         self.task = task
@@ -24,6 +84,7 @@ class GenesisEnv(gym.Env):
         self.show_viewer = show_viewer
         self.render_mode = render_mode
         self.sound_config = sound_config  # sound_configを保存
+        self.use_legacy_sound_config = use_legacy_sound_config
         self._env = self._make_env_task(sound_config)
         self.observation_space = self._env.observation_space
         self.action_space = self._env.action_space
@@ -101,64 +162,10 @@ class GenesisEnv(gym.Env):
             task_type = parts[0] # "sound", "soundDiff", "soundShake", "soundAll", "soundSim"
             
             if sound_config is None:
-                # 新しいフォーマットの解析
-                # Format: ...-m(\d+)-f(\d+)-s(\d+)-p(\d+)
-                pattern = r"-m(\d+)-f(\d+)-s(\d+)-p(\d+)"
-                match = re.search(pattern, self.task)
-                
-                if match:
-                    m, f, s, p = map(int, match.groups())
-                    
-                    # m: mic_array_num
-                    mic_array_num = m
-                    
-                    # f: update_freq (Hz) -> SoundConfig.update_freq (Interval frames)
-                    # Base FPS = 30
-                    update_freq = max(1, int(30 / f))
-                    
-                    # s: sound info
-                    use_spectrogram = False
-                    use_soundmap = True
-                    if s == 0:
-                        mic_array_num = 0 # 音情報なし
-                        use_soundmap = False
-                    elif s == 1:
-                        use_spectrogram = False
-                    elif s == 2:
-                        use_spectrogram = True
-                    elif s == 3:
-                        use_spectrogram = True
-                        use_soundmap = False
-                        
-                    # p: processing
-                    use_gaussian_filter = False
-                    use_temporal_smoothing = False
-                    use_feature = False
-                    
-                    if p == 1:
-                        use_gaussian_filter = True
-                    elif p == 2:
-                        use_temporal_smoothing = True
-                    elif p == 3:
-                        use_gaussian_filter = True
-                        use_temporal_smoothing = True
-                    elif p == 4:
-                        use_feature = True
-                        
-                    sound_config = SoundConfig(
-                        mic_array_num=mic_array_num,
-                        update_freq=update_freq,
-                        use_spectrogram=use_spectrogram,
-                        use_soundmap=use_soundmap,
-                        use_gaussian_filter=use_gaussian_filter,
-                        use_temporal_smoothing=use_temporal_smoothing,
-                        use_feature=use_feature,
-                        audio_file_path="sounds/1.wav" # デフォルト
-                    )
-                    # print(f"Parsed SoundConfig from {self.task} (new format): {sound_config}")
-
-                else:
-                    raise ValueError(f"Invalid task format: {self.task}")
+                sound_config = build_sound_config_from_task(
+                    self.task,
+                    use_legacy_sound_config=self.use_legacy_sound_config,
+                )
 
             env = SoundTask(
                 observation_height=self.observation_height,

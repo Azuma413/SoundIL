@@ -418,6 +418,7 @@ def run_evaluation(args):
         observation_height=args.observation_height,
         observation_width=args.observation_width,
         show_viewer=args.show_viewer,
+        use_legacy_sound_config=True,
     )
 
     records = []
@@ -502,6 +503,7 @@ def run_evaluation(args):
                     observation_height=args.observation_height,
                     observation_width=args.observation_width,
                     show_viewer=args.show_viewer,
+                    use_legacy_sound_config=True,
                 )
 
     env.close()
