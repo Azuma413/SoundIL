@@ -16,7 +16,6 @@ export POLICY=act
 # uv run lerobot-train --dataset.repo_id=local/${DATASET_NAME} --dataset.root=datasets/${DATASET_NAME} --policy.type=$POLICY --output_dir=outputs/train/${POLICY}_${DATASET_NAME}_seed${SEED} --job_name=${POLICY}_${DATASET_NAME}_seed${SEED} --policy.device=cuda --policy.push_to_hub=false --wandb.enable=true --wandb.disable_artifact=true --dataset.video_backend=pyav --batch_size=4 --steps=$STEPS --save_freq=$SAVE_FREQ --seed=$SEED --policy.pretrained_path=lerobot/pi0_base --policy.gradient_checkpointing=true --policy.dtype=bfloat16
 
 export SEED=1
-uv run lerobot-train --dataset.repo_id=local/${DATASET_NAME} --dataset.root=datasets/${DATASET_NAME} --policy.type=$POLICY --output_dir=outputs/train/${POLICY}_${DATASET_NAME}_seed${SEED} --job_name=${POLICY}_${DATASET_NAME}_seed${SEED} --policy.device=cuda --policy.push_to_hub=false --wandb.enable=true --wandb.disable_artifact=true --dataset.video_backend=pyav --batch_size=8 --steps=$STEPS --save_freq=$SAVE_FREQ --seed=$SEED
 uv run src/eval_policy.py --training-name ${POLICY}_${DATASET_NAME}_seed${SEED} --checkpoint-step 10000
 uv run src/eval_policy.py --training-name ${POLICY}_${DATASET_NAME}_seed${SEED} --checkpoint-step 20000
 uv run src/eval_policy.py --training-name ${POLICY}_${DATASET_NAME}_seed${SEED} --checkpoint-step 30000
@@ -29,7 +28,6 @@ uv run src/eval_policy.py --training-name ${POLICY}_${DATASET_NAME}_seed${SEED} 
 uv run src/eval_policy.py --training-name ${POLICY}_${DATASET_NAME}_seed${SEED} --checkpoint-step 100000
 
 export SEED=2
-uv run lerobot-train --dataset.repo_id=local/${DATASET_NAME} --dataset.root=datasets/${DATASET_NAME} --policy.type=$POLICY --output_dir=outputs/train/${POLICY}_${DATASET_NAME}_seed${SEED} --job_name=${POLICY}_${DATASET_NAME}_seed${SEED} --policy.device=cuda --policy.push_to_hub=false --wandb.enable=true --wandb.disable_artifact=true --dataset.video_backend=pyav --batch_size=8 --steps=$STEPS --save_freq=$SAVE_FREQ --seed=$SEED
 uv run src/eval_policy.py --training-name ${POLICY}_${DATASET_NAME}_seed${SEED} --checkpoint-step 10000
 uv run src/eval_policy.py --training-name ${POLICY}_${DATASET_NAME}_seed${SEED} --checkpoint-step 20000
 uv run src/eval_policy.py --training-name ${POLICY}_${DATASET_NAME}_seed${SEED} --checkpoint-step 30000

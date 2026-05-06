@@ -65,13 +65,13 @@ uv run lerobot-train \
   --steps=100000
 ```
 ## t-SNEプロット
-`color-by`は [`sound_type`, `sound_coordinate`, `success`] の中から選べる．\
-`sound_coordinate`を使う場合は以下のように，axisを指定する．\
---color-by sound_coordinate --sound-coordinate-axis y
+`color-by`は [`sound_type`, `sound_coordinate`, `success`] の中から選べる．選ばなければ全部プロットする．
+
+`hidden-reduction`は`none`ならhiddenをstepごとに分割し，それぞれを点として使い，`first`は先頭，`last`は末尾，`mean`はhiddenのstep方向平均を1点にする．
 ```bash
 uv run plot_tsne.py \
   --training-name act_sound-m4-f10-s2-p0_0_seed0 \
-  --sound-coordinate-axis y \
   --checkpoint-step 100000 \
-  --episode-num 10 \
+  --episode-num 3 \
+  --hidden-reduction mean
 ```

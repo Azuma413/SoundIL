@@ -543,9 +543,15 @@ def run_evaluation(args):
     color_by_options = [args.color_by] if args.color_by is not None else COLOR_BY_OPTIONS
     plot_paths = []
     for color_by in color_by_options:
-        plot_path = output_directory / f"tsne_{color_by}.png"
-        plot_embedding(embedding, records, color_by, args.sound_coordinate_axis, plot_path)
-        plot_paths.append(plot_path)
+        if color_by == "sound_coordinate":
+            for coordinate_axis in ("x", "y"):
+                plot_path = output_directory / f"tsne_{color_by}_{coordinate_axis}.png"
+                plot_embedding(embedding, records, color_by, coordinate_axis, plot_path)
+                plot_paths.append(plot_path)
+        else:
+            plot_path = output_directory / f"tsne_{color_by}.png"
+            plot_embedding(embedding, records, color_by, "y", plot_path)
+            plot_paths.append(plot_path)
     save_metadata_csv(records, embedding, output_directory / "tsne_metadata.csv")
 
     success_count = sum(episode_successes.values())
@@ -588,12 +594,6 @@ def parse_args():
         choices=COLOR_BY_OPTIONS,
         default=None,
         help="Coloring mode. If omitted, plots are generated for all modes.",
-    )
-    parser.add_argument(
-        "--sound-coordinate-axis",
-        choices=["x", "y", "z", "radius"],
-        default="y",
-        help="Coordinate component used when --color-by=sound_coordinate.",
     )
     parser.add_argument(
         "--hidden-layer",
