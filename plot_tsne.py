@@ -170,9 +170,18 @@ def infer_intermediate_layer(policy):
         "act": "model.encoder",
         "diffusion": "diffusion.unet.mid_modules.1",
         "vqbet": "vqbet.policy",
-        "pi0": "model.paligemma_with_expert",
+        "pi0": "model.paligemma_with_expert.paligemma.language_model.model.norm",
     }
     return auto_paths.get(model_name)
+
+
+def resolve_first_existing_module(root_module, module_paths):
+    for module_path in module_paths:
+        try:
+            return resolve_module(root_module, module_path), module_path
+        except (AttributeError, TypeError, IndexError, KeyError):
+            continue
+    raise ValueError(f"Could not resolve any module path from: {module_paths}")
 
 
 def make_intermediate_recorder(policy, hidden_layer):
@@ -184,12 +193,19 @@ def make_intermediate_recorder(policy, hidden_layer):
 
     model_name = getattr(policy, "name", "")
     if model_name == "pi0" and hidden_layer == "auto":
+        module_paths = (
+            # PaliGemmaWithExpertModel.forward calls .forward() directly, so hooks on
+            # the wrapper do not fire. The VLM language model's final norm is still
+            # reached through normal module calls and gives the final VLM hidden state.
+            "model.paligemma_with_expert.paligemma.language_model.model.norm",
+            "model.paligemma_with_expert.paligemma.language_model.norm",
+        )
+        _module, module_path = resolve_first_existing_module(policy, module_paths)
         return (
             HiddenStateRecorder(
                 policy,
                 module_path,
                 hook_io="output",
-                output_selector=select_pi0_vlm_prefix_output,
             ),
             module_path,
         )
