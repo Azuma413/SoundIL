@@ -72,6 +72,6 @@ uv run lerobot-train \
 uv run plot_tsne.py \
   --training-name act_sound-m4-f10-s2-p0_0_seed0 \
   --checkpoint-step 100000 \
-  --episode-num 3 \
+  --episode-num 100 \
   --hidden-reduction mean
 ```

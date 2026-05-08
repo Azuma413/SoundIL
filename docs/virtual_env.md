@@ -91,5 +91,5 @@ done
 ### t-SNEプロット
 policy, dataset name, gpu indexの順
 ```bash
-./docker/tsne.sh diffusion sound-m4-f10-s2-p0 1
+./docker/tsne.sh diffusion soundDiff-m4-f10-s2-p0 2
 ```

@@ -1,7 +1,7 @@
 import argparse
 import csv
 import os
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from copy import copy
 from pathlib import Path
 
@@ -32,6 +32,7 @@ from env.genesis_env import GenesisEnv
 
 
 COLOR_BY_OPTIONS = ["sound_type", "sound_coordinate", "success", "episode_step"]
+INTERMEDIATE_PLOT_PREFIX = "intermediate_tsne"
 
 
 def load_policy(training_name, pretrained_policy_path, device):
@@ -73,11 +74,40 @@ def resolve_module(root_module, module_path):
     return module
 
 
+def select_first_tensor(value):
+    if torch.is_tensor(value):
+        return value
+    if isinstance(value, dict):
+        for item in value.values():
+            tensor = select_first_tensor(item)
+            if tensor is not None:
+                return tensor
+    if isinstance(value, (tuple, list)):
+        for item in value:
+            tensor = select_first_tensor(item)
+            if tensor is not None:
+                return tensor
+    return None
+
+
+def select_pi0_vlm_prefix_output(output):
+    if not isinstance(output, (tuple, list)) or not output:
+        return None
+    model_outputs = output[0]
+    if not isinstance(model_outputs, (tuple, list)) or not model_outputs:
+        return None
+    return model_outputs[0]
+
+
 class HiddenStateRecorder:
-    def __init__(self, policy, hidden_layer):
+    def __init__(self, policy, hidden_layer, hook_io="input", output_selector=None, aggregation="last"):
         self.policy = policy
         self.hidden_layer = hidden_layer
+        self.hook_io = hook_io
+        self.output_selector = output_selector
+        self.aggregation = aggregation
         self.current = None
+        self.current_calls = []
         self.handle = None
 
     def __enter__(self):
@@ -85,10 +115,13 @@ class HiddenStateRecorder:
         print(f"Recording hidden states from: {module_path}")
 
         def hook(_module, inputs, _output):
-            hidden = inputs[0] if inputs else _output
-            if isinstance(hidden, (tuple, list)):
-                hidden = hidden[0]
+            source = _output if self.hook_io == "output" else (inputs[0] if inputs else _output)
+            hidden = self.output_selector(source) if self.output_selector is not None else select_first_tensor(source)
+            if hidden is None:
+                return
             self.current = hidden.detach().float().cpu()
+            if self.aggregation == "middle_call":
+                self.current_calls.append(self.current)
 
         self.handle = module.register_forward_hook(hook)
         return self
@@ -99,8 +132,12 @@ class HiddenStateRecorder:
         self.handle = None
 
     def pop(self):
-        hidden = self.current
+        if self.aggregation == "middle_call" and self.current_calls:
+            hidden = self.current_calls[len(self.current_calls) // 2]
+        else:
+            hidden = self.current
         self.current = None
+        self.current_calls = []
         return hidden
 
     def _find_module(self):
@@ -125,6 +162,43 @@ class HiddenStateRecorder:
             "Could not infer a hidden layer automatically. "
             "Specify one with --hidden-layer, e.g. model.action_head."
         )
+
+
+def infer_intermediate_layer(policy):
+    model_name = getattr(policy, "name", "")
+    auto_paths = {
+        "act": "model.encoder",
+        "diffusion": "diffusion.unet.mid_modules.1",
+        "vqbet": "vqbet.policy",
+        "pi0": "model.paligemma_with_expert",
+    }
+    return auto_paths.get(model_name)
+
+
+def make_intermediate_recorder(policy, hidden_layer):
+    if hidden_layer == "none":
+        return None, None
+    module_path = infer_intermediate_layer(policy) if hidden_layer == "auto" else hidden_layer
+    if module_path is None:
+        return None, None
+
+    model_name = getattr(policy, "name", "")
+    if model_name == "pi0" and hidden_layer == "auto":
+        return (
+            HiddenStateRecorder(
+                policy,
+                module_path,
+                hook_io="output",
+                output_selector=select_pi0_vlm_prefix_output,
+            ),
+            module_path,
+        )
+    if model_name == "diffusion" and hidden_layer == "auto":
+        return (
+            HiddenStateRecorder(policy, module_path, hook_io="output", aggregation="middle_call"),
+            module_path,
+        )
+    return HiddenStateRecorder(policy, module_path, hook_io="output"), module_path
 
 
 def convert_observation(numpy_observation, dataset):
@@ -154,6 +228,7 @@ def predict_action_and_record_hidden(
     use_amp,
     task,
     recorder,
+    intermediate_recorder=None,
 ):
     observation = copy(observation_frame)
     with (
@@ -164,8 +239,9 @@ def predict_action_and_record_hidden(
         observation = preprocessor(observation)
         action = policy.select_action(observation)
         hidden = recorder.pop()
+        intermediate_hidden = intermediate_recorder.pop() if intermediate_recorder is not None else None
         action = postprocessor(action)
-    return action, hidden
+    return action, hidden, intermediate_hidden
 
 
 def infer_hidden_layout(policy):
@@ -383,6 +459,64 @@ def save_metadata_csv(records, embedding, output_path):
             writer.writerow(row)
 
 
+def save_hidden_npz(records, output_path):
+    hidden_matrix = np.stack([record["hidden"] for record in records]).astype(np.float32)
+    np.savez_compressed(
+        output_path,
+        hidden=hidden_matrix,
+        episode=np.array([record["episode"] for record in records]),
+        env_step=np.array([record["env_step"] for record in records]),
+        chunk_index=np.array([record["chunk_index"] for record in records]),
+        sound_type=np.array([record["sound_type"] for record in records]),
+        sound_coord=np.array(
+            [[record["sound_x"], record["sound_y"], record["sound_z"]] for record in records],
+            dtype=np.float32,
+        ),
+        success=np.array([record["success"] for record in records]),
+        episode_progress=np.array([record["episode_progress"] for record in records], dtype=np.float32),
+    )
+    return hidden_matrix
+
+
+def run_tsne_and_save_plots(records, args, output_directory, file_prefix="tsne"):
+    if len(records) < 2:
+        raise RuntimeError("t-SNE needs at least 2 hidden-state points. Increase --episode-num or --max-eval-steps.")
+
+    hidden_path = output_directory / (
+        "hidden_states.npz" if file_prefix == "tsne" else f"{file_prefix}_hidden_states.npz"
+    )
+    hidden_matrix = save_hidden_npz(records, hidden_path)
+
+    perplexity = min(args.perplexity, max(1, len(records) - 1))
+    print(f"Running {file_prefix} t-SNE on {len(records)} points with perplexity={perplexity}...")
+    embedding = TSNE(
+        n_components=2,
+        perplexity=perplexity,
+        init="pca",
+        learning_rate="auto",
+        random_state=args.seed,
+    ).fit_transform(hidden_matrix)
+
+    color_by_options = [args.color_by] if args.color_by is not None else COLOR_BY_OPTIONS
+    plot_paths = []
+    for color_by in color_by_options:
+        if color_by == "sound_coordinate":
+            for coordinate_axis in ("x", "y"):
+                plot_path = output_directory / f"{file_prefix}_{color_by}_{coordinate_axis}.png"
+                plot_embedding(embedding, records, color_by, coordinate_axis, plot_path)
+                plot_paths.append(plot_path)
+        else:
+            plot_path = output_directory / f"{file_prefix}_{color_by}.png"
+            plot_embedding(embedding, records, color_by, "y", plot_path)
+            plot_paths.append(plot_path)
+
+    metadata_path = output_directory / (
+        "tsne_metadata.csv" if file_prefix == "tsne" else f"{file_prefix}_metadata.csv"
+    )
+    save_metadata_csv(records, embedding, metadata_path)
+    return hidden_path, metadata_path, plot_paths
+
+
 def run_evaluation(args):
     checkpoint_step = normalize_checkpoint_step(args.checkpoint_step)
     output_directory = Path(args.output_dir) if args.output_dir else Path(
@@ -422,6 +556,7 @@ def run_evaluation(args):
     )
 
     records = []
+    intermediate_records = []
     episode_lengths = {}
     episode_successes = {}
     torch_device = get_safe_torch_device(policy.config.device)
@@ -436,8 +571,20 @@ def run_evaluation(args):
         "Hidden point selection: "
         f"reduction={hidden_reduction}, layout={hidden_layout}, index={hidden_index}"
     )
+    intermediate_recorder, intermediate_layer = make_intermediate_recorder(policy, args.intermediate_hidden_layer)
+    intermediate_hidden_layout = args.intermediate_hidden_layout
+    if intermediate_hidden_layout == "auto":
+        intermediate_hidden_layout = infer_hidden_layout(policy)
+    intermediate_hidden_index = args.intermediate_hidden_index
+    if intermediate_recorder is None:
+        print("Intermediate hidden recording: disabled")
+    else:
+        print(f"Intermediate hidden recording: layer={intermediate_layer}")
 
-    with HiddenStateRecorder(policy, args.hidden_layer) as recorder:
+    with ExitStack() as stack:
+        recorder = stack.enter_context(HiddenStateRecorder(policy, args.hidden_layer))
+        if intermediate_recorder is not None:
+            intermediate_recorder = stack.enter_context(intermediate_recorder)
         ep = 0
         while ep < args.episode_num:
             try:
@@ -454,7 +601,7 @@ def run_evaluation(args):
                     observation_frame = convert_observation(numpy_observation, dataset)
                     task_description = env.get_task_description()
                     sound_type, sound_coord = get_sound_metadata(env)
-                    action_dict, hidden = predict_action_and_record_hidden(
+                    action_dict, hidden, intermediate_hidden = predict_action_and_record_hidden(
                         observation_frame=observation_frame,
                         policy=policy,
                         device=torch_device,
@@ -463,6 +610,7 @@ def run_evaluation(args):
                         use_amp=policy.config.use_amp,
                         task=task_description,
                         recorder=recorder,
+                        intermediate_recorder=intermediate_recorder,
                     )
                     append_hidden_records(
                         records,
@@ -474,6 +622,17 @@ def run_evaluation(args):
                         hidden_reduction,
                         hidden_layout,
                         hidden_index,
+                    )
+                    append_hidden_records(
+                        intermediate_records,
+                        intermediate_hidden,
+                        ep,
+                        step,
+                        sound_type,
+                        sound_coord,
+                        args.intermediate_hidden_reduction,
+                        intermediate_hidden_layout,
+                        intermediate_hidden_index,
                     )
 
                     action_tensor = action_dict["action"] if isinstance(action_dict, dict) else action_dict
@@ -508,53 +667,27 @@ def run_evaluation(args):
 
     env.close()
     assign_episode_outcomes(records, episode_lengths, episode_successes)
+    assign_episode_outcomes(intermediate_records, episode_lengths, episode_successes)
     if not records:
         raise RuntimeError("No hidden states were recorded. Check --hidden-layer and the policy type.")
 
     records = sample_records(records, args.max_points, args.seed)
-    if len(records) < 2:
-        raise RuntimeError("t-SNE needs at least 2 hidden-state points. Increase --episode-num or --max-eval-steps.")
+    hidden_path, metadata_path, plot_paths = run_tsne_and_save_plots(records, args, output_directory)
 
-    hidden_matrix = np.stack([record["hidden"] for record in records]).astype(np.float32)
-    hidden_path = output_directory / "hidden_states.npz"
-    np.savez_compressed(
-        hidden_path,
-        hidden=hidden_matrix,
-        episode=np.array([record["episode"] for record in records]),
-        env_step=np.array([record["env_step"] for record in records]),
-        chunk_index=np.array([record["chunk_index"] for record in records]),
-        sound_type=np.array([record["sound_type"] for record in records]),
-        sound_coord=np.array(
-            [[record["sound_x"], record["sound_y"], record["sound_z"]] for record in records],
-            dtype=np.float32,
-        ),
-        success=np.array([record["success"] for record in records]),
-        episode_progress=np.array([record["episode_progress"] for record in records], dtype=np.float32),
-    )
-
-    perplexity = min(args.perplexity, max(1, len(records) - 1))
-    print(f"Running t-SNE on {len(records)} points with perplexity={perplexity}...")
-    embedding = TSNE(
-        n_components=2,
-        perplexity=perplexity,
-        init="pca",
-        learning_rate="auto",
-        random_state=args.seed,
-    ).fit_transform(hidden_matrix)
-
-    color_by_options = [args.color_by] if args.color_by is not None else COLOR_BY_OPTIONS
-    plot_paths = []
-    for color_by in color_by_options:
-        if color_by == "sound_coordinate":
-            for coordinate_axis in ("x", "y"):
-                plot_path = output_directory / f"tsne_{color_by}_{coordinate_axis}.png"
-                plot_embedding(embedding, records, color_by, coordinate_axis, plot_path)
-                plot_paths.append(plot_path)
+    intermediate_hidden_path = None
+    intermediate_metadata_path = None
+    intermediate_plot_paths = []
+    if intermediate_recorder is not None:
+        if not intermediate_records:
+            print("No intermediate hidden states were recorded.")
         else:
-            plot_path = output_directory / f"tsne_{color_by}.png"
-            plot_embedding(embedding, records, color_by, "y", plot_path)
-            plot_paths.append(plot_path)
-    save_metadata_csv(records, embedding, output_directory / "tsne_metadata.csv")
+            intermediate_records = sample_records(intermediate_records, args.max_points, args.seed)
+            intermediate_hidden_path, intermediate_metadata_path, intermediate_plot_paths = run_tsne_and_save_plots(
+                intermediate_records,
+                args,
+                output_directory,
+                file_prefix=INTERMEDIATE_PLOT_PREFIX,
+            )
 
     success_count = sum(episode_successes.values())
     with open(output_directory / "summary.txt", "w") as f:
@@ -572,11 +705,27 @@ def run_evaluation(args):
         for plot_path in plot_paths:
             f.write(f"plot: {plot_path}\n")
         f.write(f"hidden_states: {hidden_path}\n")
+        f.write(f"metadata: {metadata_path}\n")
+        f.write(f"intermediate_hidden_layer: {intermediate_layer}\n")
+        f.write(f"intermediate_hidden_reduction: {args.intermediate_hidden_reduction}\n")
+        f.write(f"intermediate_hidden_layout: {intermediate_hidden_layout}\n")
+        f.write(f"intermediate_hidden_index: {intermediate_hidden_index}\n")
+        f.write(f"intermediate_points: {len(intermediate_records)}\n")
+        for plot_path in intermediate_plot_paths:
+            f.write(f"intermediate_plot: {plot_path}\n")
+        if intermediate_hidden_path is not None:
+            f.write(f"intermediate_hidden_states: {intermediate_hidden_path}\n")
+        if intermediate_metadata_path is not None:
+            f.write(f"intermediate_metadata: {intermediate_metadata_path}\n")
 
-    for plot_path in plot_paths:
+    for plot_path in plot_paths + intermediate_plot_paths:
         print(f"Saved plot: {plot_path}")
     print(f"Saved hidden states: {hidden_path}")
-    print(f"Saved metadata: {output_directory / 'tsne_metadata.csv'}")
+    print(f"Saved metadata: {metadata_path}")
+    if intermediate_hidden_path is not None:
+        print(f"Saved intermediate hidden states: {intermediate_hidden_path}")
+    if intermediate_metadata_path is not None:
+        print(f"Saved intermediate metadata: {intermediate_metadata_path}")
 
 
 def parse_args():
@@ -625,6 +774,32 @@ def parse_args():
         type=int,
         default=None,
         help="Sequence index used by --hidden-reduction=auto. Defaults to the model's current action index.",
+    )
+    parser.add_argument(
+        "--intermediate-hidden-layer",
+        default="auto",
+        help=(
+            "Module to hook for the additional intermediate-representation t-SNE. "
+            "Use 'none' to disable it. auto uses model-specific middle/backbone layers."
+        ),
+    )
+    parser.add_argument(
+        "--intermediate-hidden-reduction",
+        choices=["auto", "first", "last", "mean", "none"],
+        default="mean",
+        help="How to convert the intermediate hidden state into t-SNE points.",
+    )
+    parser.add_argument(
+        "--intermediate-hidden-layout",
+        choices=["auto", "sequence_last", "channel_first"],
+        default="auto",
+        help="Layout for the intermediate hidden tensor.",
+    )
+    parser.add_argument(
+        "--intermediate-hidden-index",
+        type=int,
+        default=0,
+        help="Sequence index used when --intermediate-hidden-reduction=auto.",
     )
     parser.add_argument("--perplexity", type=float, default=30.0)
     parser.add_argument("--max-points", type=int, default=50000)
