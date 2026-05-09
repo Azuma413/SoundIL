@@ -166,10 +166,16 @@ class HiddenStateRecorder:
 
 def infer_intermediate_layer(policy):
     model_name = getattr(policy, "name", "")
+    if model_name == "vqbet":
+        num_layers = getattr(policy.config, "gpt_n_layer", None)
+        if num_layers is None:
+            num_layers = len(policy.vqbet.policy.transformer.h)
+        middle_layer_index = max(0, (num_layers - 1) // 2)
+        return f"vqbet.policy.transformer.h.{middle_layer_index}"
+
     auto_paths = {
         "act": "model.encoder",
         "diffusion": "diffusion.unet.mid_modules.1",
-        "vqbet": "vqbet.policy",
         "pi0": "model.paligemma_with_expert.paligemma.language_model.model.norm",
     }
     return auto_paths.get(model_name)
