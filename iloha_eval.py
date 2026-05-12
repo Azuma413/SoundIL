@@ -38,7 +38,7 @@ from soundreal_utils import (
     full_action_to_right_feature_dict,
     get_camera_configs,
     make_full_action_from_right,
-    preprocess_camera_frame,
+    preprocess_soundreal_camera_frame,
     right_array_to_feature_dict,
 )
 
@@ -208,7 +208,7 @@ def capture_soundreal_observation(robot: Iloha, cameras: dict, sound_source: Rea
             frame = camera.read_latest(max_age_ms=CAMERA_MAX_FRAME_AGE_MS)
         except Exception:
             frame = camera.async_read(timeout_ms=CAMERA_MAX_FRAME_AGE_MS)
-        obs[name] = preprocess_camera_frame(frame)
+        obs[name] = preprocess_soundreal_camera_frame(name, frame)
 
     obs.update(sound_source.get_latest_images())
     obs.update(full_action_to_right_feature_dict(robot.old_action))

@@ -34,7 +34,7 @@ from soundreal_utils import (
     is_soundreal_task,
     make_full_action_from_right,
     preprocess_cam_high_frame,
-    preprocess_camera_frame,
+    preprocess_soundreal_camera_frame,
     right_arm_full_slice,
 )
 
@@ -457,7 +457,7 @@ class RobotCommunicationNode:
                 # 最新フレームがまだ無い場合のみ、新規フレーム待ちにフォールバックする
                 frame = camera.async_read(timeout_ms=self.CAMERA_MAX_FRAME_AGE_MS)
             if self.soundreal_enabled:
-                obs[name] = preprocess_camera_frame(frame)
+                obs[name] = preprocess_soundreal_camera_frame(name, frame)
             elif name == "cam_high":
                 obs[name] = preprocess_cam_high_frame(frame)
             else:

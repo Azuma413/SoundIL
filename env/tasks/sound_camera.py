@@ -79,6 +79,12 @@ class SoundConfig:
     combined_map_power: float = 1.0
     combined_map_gaussian_sigma: Optional[float] = None
     peak_selection_mode: Literal["local_max", "argmax"] = "local_max"
+    doa_azimuth_grid_size: Optional[int] = None
+    doa_use_grid_azimuth: bool = False
+    doa_spectrum_mode: Literal["legacy", "relative_db"] = "legacy"
+    doa_spectrum_noise_percentile: float = 50.0
+    doa_spectrum_dynamic_range_db: float = 18.0
+    doa_frequency_normalization: bool = False
 
 class SoundCamera:
     """音響シミュレーションとSoundMap生成を行うカメラクラス"""
@@ -492,10 +498,7 @@ class SoundCamera:
         distance_decay_exponent: Optional[float] = None,
     ) -> np.ndarray:
         """DOA推定結果からSoundMapを生成"""
-        spec = np.log10(np.mean(doa.Pssl, axis=1))
-        spec_sum = np.sum(spec)
-        if spec_sum != 0:
-            spec = spec / spec_sum
+        spec = self._get_doa_spectrum(doa)
         azimuth_offset_deg = self.config.azimuth_offset_deg if azimuth_offset_deg is None else azimuth_offset_deg
         distance_floor_m = self.config.doa_distance_floor_m if distance_floor_m is None else distance_floor_m
         distance_decay_exponent = (
@@ -519,12 +522,63 @@ class SoundCamera:
             theta = np.arctan2(y_grid - mic_center[1], x_grid - mic_center[0]) + np.deg2rad(azimuth_offset_deg)
             distance = np.hypot(y_grid - mic_center[1], x_grid - mic_center[0])
 
-        angle_idx = (theta / (2 * np.pi / len(spec))).astype(np.int32) % len(spec)
+        angle_idx = self._theta_to_doa_angle_indices(theta, doa, len(spec))
         if distance_decay_exponent == 0.0:
             distance_weight = np.ones_like(distance, dtype=np.float32)
         else:
             distance_weight = 1.0 / np.power(distance + distance_floor_m, distance_decay_exponent)
         return (spec[angle_idx] * distance_weight).astype(np.float32)
+
+    def _get_doa_spectrum(self, doa: pra.doa.MUSIC) -> np.ndarray:
+        if self.config.doa_spectrum_mode == "legacy":
+            spec = np.log10(np.mean(doa.Pssl, axis=1))
+            spec_sum = np.sum(spec)
+            if spec_sum != 0:
+                spec = spec / spec_sum
+            return spec
+
+        power = np.asarray(np.mean(doa.Pssl, axis=1), dtype=np.float32)
+        power = np.nan_to_num(power, nan=0.0, posinf=0.0, neginf=0.0)
+        power = np.maximum(power, 1e-12)
+        spectrum_db = 10.0 * np.log10(power)
+        baseline = np.percentile(
+            spectrum_db,
+            np.clip(float(self.config.doa_spectrum_noise_percentile), 0.0, 100.0),
+        )
+        dynamic_range = max(float(self.config.doa_spectrum_dynamic_range_db), 1e-6)
+        spectrum = np.clip(spectrum_db - baseline, 0.0, dynamic_range) / dynamic_range
+        peak = float(np.max(spectrum)) if spectrum.size else 0.0
+        if peak > 0.0:
+            spectrum = spectrum / peak
+        return spectrum.astype(np.float32, copy=False)
+
+    def _theta_to_doa_angle_indices(
+        self,
+        theta: np.ndarray,
+        doa: pra.doa.MUSIC,
+        spectrum_size: int,
+    ) -> np.ndarray:
+        if not self.config.doa_use_grid_azimuth:
+            return (theta / (2 * np.pi / spectrum_size)).astype(np.int32) % spectrum_size
+
+        azimuth = getattr(getattr(doa, "grid", None), "azimuth", None)
+        if azimuth is None:
+            return (theta / (2 * np.pi / spectrum_size)).astype(np.int32) % spectrum_size
+
+        azimuth = np.asarray(azimuth, dtype=np.float32).reshape(-1)
+        if azimuth.size != spectrum_size:
+            return (theta / (2 * np.pi / spectrum_size)).astype(np.int32) % spectrum_size
+
+        wrapped_grid = (azimuth + 2.0 * np.pi) % (2.0 * np.pi)
+        order = np.argsort(wrapped_grid)
+        sorted_grid = wrapped_grid[order]
+        wrapped_theta = (theta + 2.0 * np.pi) % (2.0 * np.pi)
+        right = np.searchsorted(sorted_grid, wrapped_theta, side="left") % spectrum_size
+        left = (right - 1) % spectrum_size
+        right_dist = np.abs(np.angle(np.exp(1j * (wrapped_theta - sorted_grid[right]))))
+        left_dist = np.abs(np.angle(np.exp(1j * (wrapped_theta - sorted_grid[left]))))
+        nearest_sorted = np.where(right_dist < left_dist, right, left)
+        return order[nearest_sorted]
 
     def _get_local_soundmap_grid(self) -> Tuple[np.ndarray, np.ndarray]:
         if self._local_soundmap_grid is None:
@@ -810,12 +864,22 @@ class SoundCamera:
             self.config.mics_per_array,
             self.config.mic_radius,
         )
+        azimuth = None
+        if self.config.doa_azimuth_grid_size is not None:
+            azimuth = np.linspace(
+                -np.pi,
+                np.pi,
+                int(self.config.doa_azimuth_grid_size),
+                endpoint=False,
+            )
         doa = pra.doa.MUSIC(
             mic_positions,
             fs=self.config.fs,
             nfft=self.config.nfft,
             c=self.config.sound_speed,
             num_src=self.config.music_num_src,
+            azimuth=azimuth,
+            frequency_normalization=self.config.doa_frequency_normalization,
         )
         doa.locate_sources(z)
         return doa

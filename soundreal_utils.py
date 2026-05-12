@@ -25,6 +25,11 @@ OBSERVATION_WIDTH = 224
 CAM_HIGH_CAPTURE_WIDTH = 1280
 CAM_HIGH_CAPTURE_HEIGHT = 720
 CAM_HIGH_CROP_SIZE = 500
+SOUNDREAL_FRONT_CAMERA_KEY = "front"
+SOUNDREAL_FRONT_CAPTURE_WIDTH = 1280
+SOUNDREAL_FRONT_CAPTURE_HEIGHT = 720
+SOUNDREAL_FRONT_CROP_WIDTH = 640
+SOUNDREAL_FRONT_CROP_HEIGHT = 480
 CAMERA_FPS = 30
 AUDIO_FPS = 10
 AUDIO_SAMPLE_RATE = 16000
@@ -40,8 +45,8 @@ RIGHT_ARM_DIM = len(RIGHT_ARM_FEATURE_NAMES)
 SOUNDREAL_CAMERA_CONFIGS = {
     "front": {
         "serial_number_or_name": "146222252104",
-        "width": 640,
-        "height": 480,
+        "width": SOUNDREAL_FRONT_CAPTURE_WIDTH,
+        "height": SOUNDREAL_FRONT_CAPTURE_HEIGHT,
         "fps": CAMERA_FPS,
     },
     "side": {
@@ -90,6 +95,10 @@ MAP_SIZE_M = 1.4
 DOA_DISTANCE_FLOOR_M = 0.0
 DOA_DISTANCE_DECAY_EXPONENT = 0.0
 COMBINED_MAP_POWER = 4.0
+SOUNDREAL_MUSIC_NUM_SRC = 1
+SOUNDREAL_DOA_AZIMUTH_GRID_SIZE = 360
+SOUNDREAL_DOA_SPECTRUM_NOISE_PERCENTILE = 60.0
+SOUNDREAL_DOA_SPECTRUM_DYNAMIC_RANGE_DB = 15.0
 SOUNDDEVICE_CAPTURE_CHUNK_SECONDS = 0.02
 SOUNDDEVICE_CAPTURE_LATENCY = "low"
 SOUNDDEVICE_READ_TIMEOUT_S = 2.0
@@ -217,6 +226,34 @@ def preprocess_cam_high_frame(
     x0 = max(0, (width - crop_size) // 2)
     y0 = max(0, height - crop_size)
     return preprocess_camera_frame(image[y0 : y0 + crop_size, x0 : x0 + crop_size])
+
+
+def crop_center_bottom(
+    frame: np.ndarray,
+    crop_width: int,
+    crop_height: int,
+) -> np.ndarray:
+    image = np.asarray(frame)
+    height, width = image.shape[:2]
+    if height < crop_height or width < crop_width:
+        raise ValueError(
+            f"Frame is too small for center-bottom crop: "
+            f"frame={width}x{height}, crop={crop_width}x{crop_height}"
+        )
+
+    x0 = (width - crop_width) // 2
+    y0 = height - crop_height
+    return image[y0 : y0 + crop_height, x0 : x0 + crop_width]
+
+
+def preprocess_soundreal_camera_frame(camera_name: str, frame: np.ndarray) -> np.ndarray:
+    if camera_name == SOUNDREAL_FRONT_CAMERA_KEY:
+        frame = crop_center_bottom(
+            frame,
+            crop_width=SOUNDREAL_FRONT_CROP_WIDTH,
+            crop_height=SOUNDREAL_FRONT_CROP_HEIGHT,
+        )
+    return preprocess_camera_frame(frame)
 
 
 def preprocess_camera_frame(frame: np.ndarray) -> np.ndarray:
@@ -596,6 +633,7 @@ class RealSoundObservationSource:
                 fs=AUDIO_SAMPLE_RATE,
                 nfft=SPECTROGRAM_NFFT,
                 num_peaks=SPECTROGRAM_NUM_PEAKS,
+                music_num_src=SOUNDREAL_MUSIC_NUM_SRC,
                 observation_height=observation_height,
                 observation_width=observation_width,
                 use_spectrogram=True,
@@ -608,6 +646,12 @@ class RealSoundObservationSource:
                 combined_map_power=COMBINED_MAP_POWER,
                 combined_map_gaussian_sigma=1.0,
                 peak_selection_mode="argmax",
+                doa_azimuth_grid_size=SOUNDREAL_DOA_AZIMUTH_GRID_SIZE,
+                doa_use_grid_azimuth=True,
+                doa_spectrum_mode="relative_db",
+                doa_spectrum_noise_percentile=SOUNDREAL_DOA_SPECTRUM_NOISE_PERCENTILE,
+                doa_spectrum_dynamic_range_db=SOUNDREAL_DOA_SPECTRUM_DYNAMIC_RANGE_DB,
+                doa_frequency_normalization=True,
             ),
         )
         self.sound_camera.mic_positions = build_rectangular_mic_positions(self.devices)
