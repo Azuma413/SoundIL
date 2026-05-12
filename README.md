@@ -64,3 +64,8 @@ uv run lerobot-train \
   --batch_size=8 \
   --steps=100000
 ```
+
+## 実機評価
+```bash
+uv run iloha_eval.py --policy_path outputs/train/act_soundReal-m4-f10-s2-p0_seed0/checkpoints/200000/pretrained_model --dataset_path datasets/soundReal-m4-f10-s2-p0 --output_root datasets/eval --episode_time_s 20 --num_episodes 1 --save_data
+```

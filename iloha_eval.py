@@ -319,10 +319,10 @@ async def main(args) -> None:
     print("ロボットを初期化中...")
     robot = Iloha(
         IlohaConfig(
-            right_dynamixel_port="/dev/ttyUSB1",
+            right_dynamixel_port="/dev/ttyUSB_RightDynamixel",
             right_robstride_port="/dev/ttyUSB0",
-            left_robstride_port="/dev/ttyUSB2",
-            left_dynamixel_port="/dev/ttyUSB3",
+            left_robstride_port="/dev/ttyUSB1",
+            left_dynamixel_port="/dev/ttyUSB_LeftDynamixel",
             max_relative_target_1=0.03,
             max_relative_target_2=0.01,
             max_relative_target_3=0.01,
