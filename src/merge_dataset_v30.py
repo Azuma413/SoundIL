@@ -204,8 +204,6 @@ def main(cfg: MergeConfig) -> None:
 
 if __name__ == "__main__":
     main(MergeConfig(
-        # name_list=["right_a50b2", "right_b15", "right_b16", "right_b17"],
-        name_list=["right_a50b50", "left_a50b50"],
-        # merged_name="right_a50b50"
-        merged_name="soundReal-m4-f10-s2-p0"
+        name_list=["soundReal-m4-f10-s2-p0_0", "soundReal-m4-f10-s2-p0_1"],
+        merged_name="RealShake-m4-f10-s2-p0"
     ))

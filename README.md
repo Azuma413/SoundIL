@@ -65,7 +65,15 @@ uv run lerobot-train \
   --steps=100000
 ```
 
-## 実機評価
+## 実機
+- iloha_server.py
+SoundAllタスクのデータを集めるときは
+IS_SOUND_SHAKE=False
+にする。
+SoundShakeタスクのデータを集めるときはTrueにする。
+- iloha_eval.py
+SoundShakeタスクをやるときは`--is-sound-shake`オプションをつける。
+
 leftが奥、rightが手前
 index 0がブザー（奥の箱に入れる）、1がひよこ（手前の箱）
 ```bash

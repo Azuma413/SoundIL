@@ -38,11 +38,14 @@ from soundreal_utils import (
     right_arm_full_slice,
 )
 
-USE_RIGHT_SPEAKER = False
+USE_RIGHT_SPEAKER = True
 FIXED_SOUND_INDEX: Optional[int] = 1 # 0(buzzer) or 1(piyopiyo) or None(0,1)
+IS_SOUND_SHAKE = True
 EPISODE_NUM = 50
 
 TASK = SOUNDREAL_TASK_NAME
+if IS_SOUND_SHAKE:
+    TASK = "Shake the cans. Pick up the one that makes sound and place it in the box."
 
 class RobotCommunicationNode:
     # データセット設定
@@ -56,10 +59,12 @@ class RobotCommunicationNode:
     def __init__(self):
         self.websocket_port = 8080
         self.task = TASK
-        self.soundreal_enabled = is_soundreal_task(self.task)
-        self.camera_configs = get_camera_configs(self.task)
+        self.soundreal_enabled = is_soundreal_task(self.task) or IS_SOUND_SHAKE
+        self.sound_playback_enabled = self.soundreal_enabled and not IS_SOUND_SHAKE
+        soundreal_camera_task = SOUNDREAL_TASK_NAME if self.soundreal_enabled else self.task
+        self.camera_configs = get_camera_configs(soundreal_camera_task)
         self.state_names = RIGHT_ARM_FEATURE_NAMES if self.soundreal_enabled else tuple(JOINT_NAMES)
-        self.dataset_prefix = self.task if self.soundreal_enabled else "iloha"
+        self.dataset_prefix = SOUNDREAL_TASK_NAME if self.soundreal_enabled else "iloha"
         self.unity_joint_port: Optional[int] = None
         self.is_connected = False
         self.is_receiving_joints = False
@@ -146,7 +151,7 @@ class RobotCommunicationNode:
                 max_relative_target_4=0.03, # yaw
                 max_relative_target_5=0.01, # pitch
                 max_relative_target_6=0.03, # yaw
-                current_limit_gripper_R=0.3,
+                current_limit_gripper_R=0.02 if IS_SOUND_SHAKE else 0.3,
                 current_limit_gripper_L=0.3,
             )
             self.robot = Iloha(config, debug=False)
@@ -183,7 +188,7 @@ class RobotCommunicationNode:
             self.sound_source.start()
             if not self.sound_source.wait_until_ready(timeout_s=5.0):
                 print("[soundreal] Audio buffers are still warming up. Initial frames may contain zeros.")
-        if self.audio_player is None:
+        if self.sound_playback_enabled and self.audio_player is None:
             self.audio_player = LoopingStereoPlayer()
 
     def _set_next_sound_condition(self) -> None:
@@ -216,7 +221,8 @@ class RobotCommunicationNode:
             f"speaker={self.current_sound_condition.speaker}, "
             f"sound={self.current_sound_condition.sound_label}"
         )
-        self.audio_player.start(self.current_sound_condition)
+        if self.sound_playback_enabled and self.audio_player is not None:
+            self.audio_player.start(self.current_sound_condition)
 
     def _stop_sound_runtime(self) -> None:
         if self.audio_player is not None:

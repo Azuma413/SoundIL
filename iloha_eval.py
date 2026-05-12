@@ -412,7 +412,7 @@ async def main(args) -> None:
             max_relative_target_4=0.03,
             max_relative_target_5=0.01,
             max_relative_target_6=0.03,
-            current_limit_gripper_R=0.3,
+            current_limit_gripper_R=0.02 if args.is_sound_shake else 0.3,
             current_limit_gripper_L=0.3,
         ),
         debug=False,
@@ -440,7 +440,8 @@ async def main(args) -> None:
         sound_source.start()
         if not sound_source.wait_until_ready(timeout_s=5.0):
             print("[soundreal] Audio buffers are still warming up. Initial frames may contain zeros.")
-        audio_player = LoopingStereoPlayer(output_device=args.output_device)
+        if not args.is_sound_shake:
+            audio_player = LoopingStereoPlayer(output_device=args.output_device)
 
         if args.save_data:
             print("=" * 60)
@@ -490,12 +491,15 @@ async def main(args) -> None:
                 "[soundreal] Episode stimulus: "
                 f"speaker={condition.speaker}, sound={condition.sound_label}"
             )
-            audio_player.start(condition)
-            print(
-                "[soundreal] Playback started: "
-                f"speaker={condition.speaker}, sound={condition.sound_label}, file={condition.sound_path}"
-            )
-            await asyncio.sleep(args.audio_preroll_s)
+            if audio_player is not None:
+                audio_player.start(condition)
+                print(
+                    "[soundreal] Playback started: "
+                    f"speaker={condition.speaker}, sound={condition.sound_label}, file={condition.sound_path}"
+                )
+                await asyncio.sleep(args.audio_preroll_s)
+            else:
+                print("[soundreal] Playback disabled by --is-sound-shake.")
 
             frame_count = await evaluation_loop(
                 robot=robot,
@@ -512,7 +516,8 @@ async def main(args) -> None:
                 display_data=args.display_data,
             )
 
-            audio_player.stop()
+            if audio_player is not None:
+                audio_player.stop()
 
             if dataset is not None:
                 if frame_count > 0:
@@ -582,6 +587,13 @@ if __name__ == "__main__":
     parser.add_argument("--display_data", action="store_true", help="rerun で可視化する")
     parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"], help="推論デバイス")
     parser.add_argument("--seed", type=int, default=0, help="音条件サンプリング用 seed")
+    parser.add_argument(
+        "--is-sound-shake",
+        "--is_sound_shake",
+        dest="is_sound_shake",
+        action="store_true",
+        help="soundShake 評価として音声再生を無効化する",
+    )
     parser.add_argument(
         "--sound_index",
         type=int,
