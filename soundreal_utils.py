@@ -39,13 +39,13 @@ RIGHT_ARM_DIM = len(RIGHT_ARM_FEATURE_NAMES)
 
 SOUNDREAL_CAMERA_CONFIGS = {
     "front": {
-        "serial_number_or_name": "029522250086",
+        "serial_number_or_name": "146222252104",
         "width": 640,
         "height": 480,
         "fps": CAMERA_FPS,
     },
     "side": {
-        "serial_number_or_name": "146222252104",
+        "serial_number_or_name": "029522250086",
         "width": 640,
         "height": 480,
         "fps": CAMERA_FPS,
@@ -570,9 +570,11 @@ class RealSoundObservationSource:
         explicit_device_ids: list[int] | None = None,
         observation_height: int = OBSERVATION_HEIGHT,
         observation_width: int = OBSERVATION_WIDTH,
+        remap_soundmap_channels: bool = False,
     ):
         device_ids = explicit_device_ids or parse_device_ids_env("SOUNDREAL_DEVICE_IDS")
         self.devices = select_tamago_devices(device_ids)
+        self.remap_soundmap_channels = remap_soundmap_channels
         self.audio_fps = AUDIO_FPS
         self.sound_camera = SoundCamera(
             target=DummyTarget(),
@@ -911,10 +913,22 @@ class RealSoundObservationSource:
                 ]
             return snapshot, self.capture_sequence
 
+    @staticmethod
+    def _remap_soundmap_channels(sound0: np.ndarray, sound1: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        combined = np.concatenate([sound0, sound1], axis=2)
+        remapped = np.zeros_like(combined)
+        # Current clockwise array layout is R1, B0, R0, G0.
+        # Remap it to G0, B0, R1, R0.
+        remapped[:, :, 0] = combined[:, :, 1]
+        remapped[:, :, 1] = combined[:, :, 3]
+        remapped[:, :, 2] = combined[:, :, 2]
+        remapped[:, :, 3] = combined[:, :, 0]
+        return remapped[:, :, :3], remapped[:, :, 3:6]
+
     def _build_images_from_snapshot(self, snapshot: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         mic_signals_list = [audio.T for audio in snapshot]
         with self._sound_camera_lock:
-            return self.sound_camera.build_sound_observation_from_mic_signals(
+            sound0, sound1, spec = self.sound_camera.build_sound_observation_from_mic_signals(
                 mic_signals_list,
                 x_coords=self.map_x_coords,
                 y_coords=self.map_y_coords,
@@ -927,6 +941,9 @@ class RealSoundObservationSource:
                 array_relative_positions=self.array_relative_positions,
                 create_spectrogram=True,
             )
+        if self.remap_soundmap_channels:
+            sound0, sound1 = self._remap_soundmap_channels(sound0, sound1)
+        return sound0, sound1, spec
 
 
 def create_sound_debug_panel(

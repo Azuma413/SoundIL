@@ -66,6 +66,8 @@ uv run lerobot-train \
 ```
 
 ## 実機評価
+leftが奥、rightが手前
+index 0がブザー（奥の箱に入れる）、1がひよこ（手前の箱）
 ```bash
-uv run iloha_eval.py --policy_path outputs/train/act_soundReal-m4-f10-s2-p0_seed0/checkpoints/200000/pretrained_model --dataset_path datasets/soundReal-m4-f10-s2-p0 --output_root datasets/eval --episode_time_s 20 --num_episodes 1 --save_data
+uv run iloha_eval.py --policy_path outputs/train/act_soundReal-m4-f10-s2-p0_seed0/checkpoints/200000/pretrained_model --dataset_path datasets/soundReal-m4-f10-s2-p0 --output_root datasets/eval --episode_time_s 20 --num_episodes 1 --save_data --sound_index 0 --speaker left
 ```

@@ -1,17 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-実機 Iloha で soundReal-m4-f10-s2-p0 の Policy 評価を行うスクリプト。
-
-- 右腕のみ使用
-- front / side カメラのみ使用
-- 観測 state / action は 7 次元 joint
-- 音観測は sound0 / sound1 / spec を 10 FPS のバックグラウンド更新で取得
-- ACT / Diffusion のみ対応
-"""
 
 import argparse
 import asyncio
+import csv
 import time
 from pathlib import Path
 from typing import Optional
@@ -24,6 +16,7 @@ from lerobot.configs.policies import PreTrainedConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import build_dataset_frame
 from lerobot.datasets.video_utils import VideoEncodingManager
+from lerobot.policies.act.modeling_act import ACTTemporalEnsembler
 from lerobot.policies.factory import make_policy, make_pre_post_processors
 from lerobot.robots.iloha import Iloha, IlohaConfig
 from lerobot.utils.control_utils import predict_action
@@ -36,15 +29,17 @@ from soundreal_utils import (
     OBSERVATION_WIDTH,
     RIGHT_ARM_DIM,
     RIGHT_ARM_FEATURE_NAMES,
+    SOUND_FILES,
+    SOUND_LABELS,
     SOUNDREAL_TASK_NAME,
     RealSoundObservationSource,
+    SoundEpisodeCondition,
     build_soundreal_dataset_features,
     full_action_to_right_feature_dict,
     get_camera_configs,
     make_full_action_from_right,
     preprocess_camera_frame,
     right_array_to_feature_dict,
-    sample_sound_episode_condition,
 )
 
 
@@ -53,32 +48,98 @@ RELATIVE_WARMUP_SECONDS = 3.0
 ABSOLUTE_MODE_DELTA_THRESHOLD = 0.2
 EVAL_DATASET_PREFIX = f"eval_{SOUNDREAL_TASK_NAME}"
 SUPPORTED_POLICY_TYPES = {"act", "diffusion"}
+SOUND_SPEAKER_CHOICES = ("left", "right")
 
 
 async def reset_robot_to_home(robot: Iloha, init: bool = True) -> None:
     print("ロボットを初期位置に戻しています...")
 
-    home_action = robot.old_action.copy()
+    home_action = make_full_action_from_right(
+        np.asarray(robot.old_action[7:14], dtype=np.float32)
+    )
     if not init:
-        home_action[0] = 0.0
-        home_action[7] = 0.0
-        home_action[1] = -np.pi / 6
-        home_action[2] = -np.pi / 6
-        home_action[8] = -np.pi / 6
-        home_action[9] = -np.pi / 6
+        right_home = np.asarray(robot.old_action[7:14], dtype=np.float32).copy()
+        right_home[0] = 0.0
+        right_home[1] = -np.pi / 6
+        right_home[2] = -np.pi / 6
+        home_action = make_full_action_from_right(right_home)
         await robot.async_send_action(home_action, use_relative=False, use_filter=False, use_unwrap=False)
         await asyncio.sleep(1.0)
 
-    home_action[3:7] = 0.0
-    home_action[10:14] = 0.0
+    right_home = np.asarray(home_action[7:14], dtype=np.float32).copy()
+    right_home[3:7] = 0.0
+    home_action = make_full_action_from_right(right_home)
     await robot.async_send_action(home_action, use_relative=False, use_filter=False, use_unwrap=False)
     await asyncio.sleep(2.0)
 
-    home_action = np.zeros_like(home_action)
+    home_action = make_full_action_from_right(np.zeros(RIGHT_ARM_DIM, dtype=np.float32))
     await robot.async_send_action(home_action, use_relative=False, use_filter=False, use_unwrap=False)
     await asyncio.sleep(1.0)
 
     print("初期位置復帰完了")
+
+
+def make_eval_sound_episode_condition(
+    rng: np.random.Generator,
+    sound_index: Optional[int] = None,
+    speaker: Optional[str] = None,
+) -> SoundEpisodeCondition:
+    if sound_index is None:
+        sound_index = int(rng.integers(0, len(SOUND_FILES)))
+    if sound_index not in SOUND_FILES:
+        raise ValueError(
+            f"Invalid sound_index={sound_index}. "
+            f"Available sound indices: {sorted(SOUND_FILES.keys())}"
+        )
+
+    if speaker is None:
+        speaker = SOUND_SPEAKER_CHOICES[int(rng.integers(0, len(SOUND_SPEAKER_CHOICES)))]
+    if speaker not in SOUND_SPEAKER_CHOICES:
+        raise ValueError(
+            f"Invalid speaker={speaker!r}. "
+            f"Available speakers: {list(SOUND_SPEAKER_CHOICES)}"
+        )
+
+    return SoundEpisodeCondition(
+        sound_index=sound_index,
+        sound_label=SOUND_LABELS[sound_index],
+        sound_path=SOUND_FILES[sound_index],
+        speaker=speaker,
+    )
+
+
+def append_sound_condition_csv(
+    dataset_path: Path,
+    episode_index: int,
+    condition: SoundEpisodeCondition,
+    frame_count: int,
+) -> None:
+    csv_path = dataset_path / "sound_conditions.csv"
+    write_header = not csv_path.exists()
+    with csv_path.open("a", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[
+                "episode_index",
+                "sound_index",
+                "sound_label",
+                "sound_path",
+                "speaker",
+                "frame_count",
+            ],
+        )
+        if write_header:
+            writer.writeheader()
+        writer.writerow(
+            {
+                "episode_index": episode_index,
+                "sound_index": condition.sound_index,
+                "sound_label": condition.sound_label,
+                "sound_path": str(condition.sound_path),
+                "speaker": condition.speaker,
+                "frame_count": frame_count,
+            }
+        )
 
 
 def initialize_cameras() -> dict:
@@ -184,6 +245,21 @@ def policy_output_to_right_array(action_output) -> np.ndarray:
 def load_local_dataset(dataset_path: Path) -> LeRobotDataset:
     repo_id = f"local/{dataset_path.name}"
     return LeRobotDataset(repo_id=repo_id, root=dataset_path, video_backend="pyav")
+
+
+def override_act_eval_config(policy) -> None:
+    policy.config.n_action_steps = 1
+    policy.config.temporal_ensemble_coeff = 0.01
+    policy.temporal_ensembler = ACTTemporalEnsembler(
+        policy.config.temporal_ensemble_coeff,
+        policy.config.chunk_size,
+    )
+    policy.reset()
+    print(
+        "Overriding ACT eval config: "
+        f"n_action_steps={policy.config.n_action_steps}, "
+        f"temporal_ensemble_coeff={policy.config.temporal_ensemble_coeff}"
+    )
 
 
 async def evaluation_loop(
@@ -300,6 +376,10 @@ async def main(args) -> None:
     policy_cfg.pretrained_path = policy_path
     policy_cfg.device = str(device)
     policy = make_policy(policy_cfg, ds_meta=dataset_for_stats.meta)
+    if policy_cfg.type == "act":
+        override_act_eval_config(policy)
+        policy_cfg.n_action_steps = policy.config.n_action_steps
+        policy_cfg.temporal_ensemble_coeff = policy.config.temporal_ensemble_coeff
     policy.eval()
     preprocessor, postprocessor = make_pre_post_processors(
         policy_cfg=policy_cfg,
@@ -313,6 +393,7 @@ async def main(args) -> None:
     sound_source = None
     audio_player = None
     dataset = None
+    dataset_save_path = None
     video_encoding_manager = None
 
     print("=" * 60)
@@ -323,6 +404,8 @@ async def main(args) -> None:
             right_robstride_port="/dev/ttyUSB0",
             left_robstride_port="/dev/ttyUSB1",
             left_dynamixel_port="/dev/ttyUSB_LeftDynamixel",
+            enable_left_arm=False,
+            enable_right_arm=True,
             max_relative_target_1=0.03,
             max_relative_target_2=0.01,
             max_relative_target_3=0.01,
@@ -352,6 +435,7 @@ async def main(args) -> None:
             explicit_device_ids=parse_device_ids(args.input_device_ids),
             observation_height=OBSERVATION_HEIGHT,
             observation_width=OBSERVATION_WIDTH,
+            remap_soundmap_channels=args.remap_soundmap_channels,
         )
         sound_source.start()
         if not sound_source.wait_until_ready(timeout_s=5.0):
@@ -367,6 +451,7 @@ async def main(args) -> None:
             dataset_name = f"{EVAL_DATASET_PREFIX}_{dataset_num}"
             repo_id = f"local/{dataset_name}"
             save_path = output_root / dataset_name
+            dataset_save_path = save_path
             dataset = LeRobotDataset.create(
                 repo_id=repo_id,
                 fps=CAMERA_FPS,
@@ -396,12 +481,20 @@ async def main(args) -> None:
             preprocessor.reset()
             postprocessor.reset()
 
-            condition = sample_sound_episode_condition(rng)
+            condition = make_eval_sound_episode_condition(
+                rng,
+                sound_index=args.sound_index,
+                speaker=args.speaker,
+            )
             print(
                 "[soundreal] Episode stimulus: "
                 f"speaker={condition.speaker}, sound={condition.sound_label}"
             )
             audio_player.start(condition)
+            print(
+                "[soundreal] Playback started: "
+                f"speaker={condition.speaker}, sound={condition.sound_label}, file={condition.sound_path}"
+            )
             await asyncio.sleep(args.audio_preroll_s)
 
             frame_count = await evaluation_loop(
@@ -424,6 +517,16 @@ async def main(args) -> None:
             if dataset is not None:
                 if frame_count > 0:
                     dataset.save_episode()
+                    saved_episode_index = (
+                        int(getattr(dataset, "num_episodes", episode_idx + 1)) - 1
+                    )
+                    if dataset_save_path is not None:
+                        append_sound_condition_csv(
+                            dataset_save_path,
+                            saved_episode_index,
+                            condition,
+                            frame_count,
+                        )
                     print(f"エピソード {episode_idx + 1} を保存しました")
                 else:
                     dataset.clear_episode_buffer()
@@ -480,6 +583,20 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"], help="推論デバイス")
     parser.add_argument("--seed", type=int, default=0, help="音条件サンプリング用 seed")
     parser.add_argument(
+        "--sound_index",
+        type=int,
+        choices=sorted(SOUND_FILES.keys()),
+        default=None,
+        help="鳴らす音の種類。未指定時はエピソードごとにランダム",
+    )
+    parser.add_argument(
+        "--speaker",
+        type=str,
+        choices=SOUND_SPEAKER_CHOICES,
+        default=None,
+        help="音を鳴らすスピーカー（left/right）。未指定時はエピソードごとにランダム",
+    )
+    parser.add_argument(
         "--audio_preroll_s",
         type=float,
         default=0.5,
@@ -496,5 +613,11 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="TAMAGO 入力デバイス ID をカンマ区切りで指定。未指定時は自動検出",
+    )
+    parser.add_argument(
+        "--remap-soundmap-channels",
+        "--remap_soundmap_channels",
+        action="store_true",
+        help="SoundMap チャンネルを右上から時計回りに G0,B0,R1,R0 へ入れ替える",
     )
     asyncio.run(main(parser.parse_args()))
