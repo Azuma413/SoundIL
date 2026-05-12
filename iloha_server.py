@@ -179,7 +179,7 @@ class RobotCommunicationNode:
         if not self.soundreal_enabled:
             return
         if self.sound_source is None:
-            self.sound_source = RealSoundObservationSource()
+            self.sound_source = RealSoundObservationSource(remap_soundmap_channels=True)
             self.sound_source.start()
             if not self.sound_source.wait_until_ready(timeout_s=5.0):
                 print("[soundreal] Audio buffers are still warming up. Initial frames may contain zeros.")

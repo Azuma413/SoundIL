@@ -346,6 +346,12 @@ def parse_device_ids_env(var_name: str) -> list[int] | None:
     return [int(part.strip()) for part in raw.split(",") if part.strip()]
 
 
+def parse_hw_index_list(raw: str | None) -> list[int] | None:
+    if raw is None or not raw.strip():
+        return None
+    return [int(part.strip()) for part in raw.split(",") if part.strip()]
+
+
 def select_tamago_devices(explicit_ids: list[int] | None = None) -> list[tuple[int, dict]]:
     inputs = dict(query_input_devices())
     if explicit_ids:
@@ -402,6 +408,12 @@ def build_rectangular_mic_positions(devices: list[tuple[int, dict]]) -> list[lis
             )
         positions.append(by_hw[hw_index])
     return positions
+
+
+def get_dataset_sound_channel_hw_order() -> list[int]:
+    right_top, right_bottom, left_bottom, left_top = RECTANGLE_HW_ORDER_CLOCKWISE
+    return [left_top, right_top, right_bottom, left_bottom]
+
 
 @dataclass
 class SoundDeviceStreamState:
@@ -560,7 +572,7 @@ def get_map_bounds() -> tuple[float, float, float, float]:
 def get_map_axes(width: int, height: int) -> tuple[np.ndarray, np.ndarray]:
     x_min, x_max, y_min, y_max = get_map_bounds()
     x_coords = np.linspace(x_min, x_max, width, dtype=np.float32)
-    y_coords = np.linspace(y_min, y_max, height, dtype=np.float32)
+    y_coords = np.linspace(y_max, y_min, height, dtype=np.float32)
     return x_coords, y_coords
 
 
@@ -715,6 +727,12 @@ class RealSoundObservationSource:
     def get_latest_images(self) -> dict[str, np.ndarray]:
         with self._lock:
             return {key: value.copy() for key, value in self.cached_images.items()}
+
+    def get_sound_channel_hw_order(self) -> list[int | None]:
+        hw_order = [extract_hw_index(str(device["name"])) for _device_id, device in self.devices]
+        if self.remap_soundmap_channels:
+            return get_dataset_sound_channel_hw_order()
+        return hw_order
 
     def reset_nmf_state(self) -> None:
         with self._sound_camera_lock:
@@ -913,16 +931,17 @@ class RealSoundObservationSource:
                 ]
             return snapshot, self.capture_sequence
 
-    @staticmethod
-    def _remap_soundmap_channels(sound0: np.ndarray, sound1: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def _remap_soundmap_channels(self, sound0: np.ndarray, sound1: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         combined = np.concatenate([sound0, sound1], axis=2)
         remapped = np.zeros_like(combined)
-        # Current clockwise array layout is R1, B0, R0, G0.
-        # Remap it to G0, B0, R1, R0.
-        remapped[:, :, 0] = combined[:, :, 1]
-        remapped[:, :, 1] = combined[:, :, 3]
-        remapped[:, :, 2] = combined[:, :, 2]
-        remapped[:, :, 3] = combined[:, :, 0]
+        hw_to_channel = {
+            extract_hw_index(str(device["name"])): idx
+            for idx, (_device_id, device) in enumerate(self.devices)
+        }
+        for output_channel, hw_index in enumerate(get_dataset_sound_channel_hw_order()):
+            input_channel = hw_to_channel.get(hw_index)
+            if input_channel is not None and input_channel < combined.shape[2]:
+                remapped[:, :, output_channel] = combined[:, :, input_channel]
         return remapped[:, :, :3], remapped[:, :, 3:6]
 
     def _build_images_from_snapshot(self, snapshot: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -1005,6 +1024,39 @@ def create_sound_debug_panel(
             cv2.LINE_AA,
         )
     return np.concatenate([overlay, panel], axis=0)
+
+
+def select_sound_debug_hw_channels(
+    images: dict[str, np.ndarray],
+    channel_hw_order: list[int | None],
+    selected_hw_order: list[int] | None,
+) -> dict[str, np.ndarray]:
+    if selected_hw_order is None:
+        return images
+
+    hw_to_channel = {hw_index: idx for idx, hw_index in enumerate(channel_hw_order) if hw_index is not None}
+    missing_hw = [hw_index for hw_index in selected_hw_order if hw_index not in hw_to_channel]
+    if missing_hw:
+        available = ", ".join(f"hw:{hw_index}" for hw_index in hw_to_channel)
+        requested = ", ".join(f"hw:{hw_index}" for hw_index in missing_hw)
+        raise ValueError(f"Requested debug sound channel(s) not found: {requested}. Available: {available}")
+
+    sound0 = images.get("sound0")
+    sound1 = images.get("sound1")
+    if sound0 is None or sound1 is None:
+        return images
+
+    combined = np.concatenate([sound0, sound1], axis=2)
+    selected = np.zeros_like(combined)
+    for hw_index in selected_hw_order:
+        channel = hw_to_channel[hw_index]
+        if channel < combined.shape[2]:
+            selected[:, :, channel] = combined[:, :, channel]
+
+    filtered = dict(images)
+    filtered["sound0"] = selected[:, :, :3]
+    filtered["sound1"] = selected[:, :, 3:6]
+    return filtered
 
 
 def make_debug_output_path(output_path: str | None) -> Path:
@@ -1097,7 +1149,17 @@ def run_sound_debug_session(args: argparse.Namespace) -> None:
         else parse_cli_device_ids(args.input_device_ids),
         observation_height=args.height,
         observation_width=args.width,
+        remap_soundmap_channels=True,
     )
+    debug_hw_channels = parse_hw_index_list(args.debug_hw_channels)
+    debug_channel_hw_order = sound_source.get_sound_channel_hw_order()
+    if debug_hw_channels is not None:
+        available_hw_channels = {hw_index for hw_index in debug_channel_hw_order if hw_index is not None}
+        missing_hw_channels = [hw_index for hw_index in debug_hw_channels if hw_index not in available_hw_channels]
+        if missing_hw_channels:
+            available = ", ".join(f"hw:{hw_index}" for hw_index in sorted(available_hw_channels))
+            missing = ", ".join(f"hw:{hw_index}" for hw_index in missing_hw_channels)
+            raise ValueError(f"Requested debug sound channel(s) not found: {missing}. Available: {available}")
     audio_player = None if args.no_audio else LoopingStereoPlayer(output_device=args.output_device)
     display_enabled = not args.no_display
     writer = None
@@ -1121,6 +1183,11 @@ def run_sound_debug_session(args: argparse.Namespace) -> None:
             )
         else:
             print("[soundreal] Running without playback audio.")
+        if debug_hw_channels is not None:
+            print(
+                "[soundreal] Debug sound channels: "
+                + ", ".join(f"hw:{hw_index}" for hw_index in debug_hw_channels)
+            )
 
         print("[soundreal] Press 'q' in the preview window or Ctrl+C to stop.")
         start_time = time.perf_counter()
@@ -1131,7 +1198,9 @@ def run_sound_debug_session(args: argparse.Namespace) -> None:
                 break
 
             images, status = sound_source.get_latest_debug_snapshot()
+            images = select_sound_debug_hw_channels(images, debug_channel_hw_order, debug_hw_channels)
             panel = create_sound_debug_panel(images, status, condition)
+            panel_bgr = cv2.cvtColor(panel, cv2.COLOR_RGB2BGR)
 
             if writer is None and (args.save_mp4 or not display_enabled):
                 output_path = make_debug_output_path(args.output_path)
@@ -1140,7 +1209,7 @@ def run_sound_debug_session(args: argparse.Namespace) -> None:
 
             if display_enabled:
                 try:
-                    cv2.imshow(window_name, panel)
+                    cv2.imshow(window_name, panel_bgr)
                     key = cv2.waitKey(1) & 0xFF
                     if key == ord("q"):
                         break
@@ -1153,7 +1222,7 @@ def run_sound_debug_session(args: argparse.Namespace) -> None:
                         print(f"[soundreal] Falling back to debug video save: {output_path}")
 
             if writer is not None and now - last_frame_time >= frame_interval_s:
-                writer.write(panel)
+                writer.write(panel_bgr)
                 last_frame_time = now
 
             current_process_count = int(status.get("process_count") or 0)
@@ -1231,6 +1300,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="comma-separated TAMAGO input device ids; default is auto-detect",
+    )
+    parser.add_argument(
+        "--debug-hw-channels",
+        "--debug_hw_channels",
+        type=str,
+        default=None,
+        help="comma-separated hw indices to visualize in the debug sound maps, e.g. 4,5,3,2",
     )
     parser.add_argument(
         "--speaker",

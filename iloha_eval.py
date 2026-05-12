@@ -618,6 +618,13 @@ if __name__ == "__main__":
         "--remap-soundmap-channels",
         "--remap_soundmap_channels",
         action="store_true",
+        default=True,
         help="SoundMap チャンネルを右上から時計回りに G0,B0,R1,R0 へ入れ替える",
+    )
+    parser.add_argument(
+        "--no-remap-soundmap-channels",
+        dest="remap_soundmap_channels",
+        action="store_false",
+        help="SoundMap チャンネルを入れ替えずに保存する",
     )
     asyncio.run(main(parser.parse_args()))
