@@ -142,6 +142,39 @@ def append_sound_condition_csv(
         )
 
 
+def prompt_episode_success(episode_number: int, total_episodes: int) -> bool:
+    while True:
+        result = input(
+            f"エピソード {episode_number}/{total_episodes} の結果を入力してください "
+            "(1: 成功, 2: 失敗): "
+        ).strip()
+        if result == "1":
+            return True
+        if result == "2":
+            return False
+        print("無効な入力です。1（成功）または 2（失敗）を入力してください。")
+
+
+def write_episode_success_csv(dataset_path: Path, results: list[dict]) -> Path:
+    csv_path = dataset_path / "episode_success.csv"
+    with csv_path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[
+                "episode_number",
+                "episode_index",
+                "success",
+                "frame_count",
+                "sound_index",
+                "sound_label",
+                "speaker",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(results)
+    return csv_path
+
+
 def initialize_cameras() -> dict:
     try:
         camera_configs = {
@@ -378,8 +411,8 @@ async def main(args) -> None:
     policy = make_policy(policy_cfg, ds_meta=dataset_for_stats.meta)
     if policy_cfg.type == "act":
         override_act_eval_config(policy)
-        policy_cfg.n_action_steps = policy.config.n_action_steps
-        policy_cfg.temporal_ensemble_coeff = policy.config.temporal_ensemble_coeff
+        policy_cfg.n_action_steps = 5 # policy.config.n_action_steps
+        # policy_cfg.temporal_ensemble_coeff = policy.config.temporal_ensemble_coeff
     policy.eval()
     preprocessor, postprocessor = make_pre_post_processors(
         policy_cfg=policy_cfg,
@@ -395,6 +428,8 @@ async def main(args) -> None:
     dataset = None
     dataset_save_path = None
     video_encoding_manager = None
+    episode_success_results = []
+    robot_is_home = False
 
     print("=" * 60)
     print("ロボットを初期化中...")
@@ -412,7 +447,7 @@ async def main(args) -> None:
             max_relative_target_4=0.03,
             max_relative_target_5=0.01,
             max_relative_target_6=0.03,
-            current_limit_gripper_R=0.02 if args.is_sound_shake else 0.3,
+            current_limit_gripper_R=0.01 if args.is_sound_shake else 0.3,
             current_limit_gripper_L=0.3,
         ),
         debug=False,
@@ -421,6 +456,7 @@ async def main(args) -> None:
         await robot.connect()
         print("ロボット接続完了")
         await reset_robot_to_home(robot)
+        robot_is_home = True
 
         print("=" * 60)
         print("カメラを初期化中...")
@@ -501,6 +537,7 @@ async def main(args) -> None:
             else:
                 print("[soundreal] Playback disabled by --is-sound-shake.")
 
+            robot_is_home = False
             frame_count = await evaluation_loop(
                 robot=robot,
                 cameras=cameras,
@@ -518,6 +555,8 @@ async def main(args) -> None:
 
             if audio_player is not None:
                 audio_player.stop()
+
+            saved_episode_index: Optional[int] = None
 
             if dataset is not None:
                 if frame_count > 0:
@@ -537,9 +576,39 @@ async def main(args) -> None:
                     dataset.clear_episode_buffer()
                     print(f"エピソード {episode_idx + 1} は空だったため保存をスキップしました")
 
+            await reset_robot_to_home(robot, init=False)
+            robot_is_home = True
             if episode_idx < args.num_episodes - 1:
-                await reset_robot_to_home(robot, init=False)
                 await asyncio.sleep(2.0)
+
+            episode_success = prompt_episode_success(episode_idx + 1, args.num_episodes)
+
+            episode_success_results.append(
+                {
+                    "episode_number": episode_idx + 1,
+                    "episode_index": "" if saved_episode_index is None else saved_episode_index,
+                    "success": int(episode_success),
+                    "frame_count": frame_count,
+                    "sound_index": condition.sound_index,
+                    "sound_label": condition.sound_label,
+                    "speaker": condition.speaker,
+                }
+            )
+
+        if episode_success_results:
+            success_count = sum(int(result["success"]) for result in episode_success_results)
+            success_rate = success_count / len(episode_success_results) * 100.0
+            result_dataset_path = dataset_save_path if dataset_save_path is not None else dataset_path
+            success_csv_path = write_episode_success_csv(
+                result_dataset_path,
+                episode_success_results,
+            )
+            print("=" * 60)
+            print(f"エピソード成功判定CSVを保存しました: {success_csv_path}")
+            print(
+                "成功率: "
+                f"{success_count}/{len(episode_success_results)} ({success_rate:.2f}%)"
+            )
 
     finally:
         print("=" * 60)
@@ -563,10 +632,12 @@ async def main(args) -> None:
                 print(f"{name} 切断エラー: {exc}")
 
         if robot is not None:
-            try:
-                await reset_robot_to_home(robot, init=False)
-            except Exception as exc:
-                print(f"初期位置復帰エラー: {exc}")
+            if not robot_is_home:
+                try:
+                    await reset_robot_to_home(robot, init=False)
+                    robot_is_home = True
+                except Exception as exc:
+                    print(f"初期位置復帰エラー: {exc}")
             try:
                 await robot.disconnect()
                 print("ロボット切断完了")
