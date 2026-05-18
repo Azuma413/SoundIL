@@ -12,4 +12,5 @@ debug/
 old_datasets/
 old_outputs/
 .codex
+.edit_dataset_cache/
 *.zip

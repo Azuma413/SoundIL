@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import io
 import json
 import os
+import pickle
 import shutil
 import sys
+import tempfile
 import threading
 import webbrowser
+from collections import OrderedDict
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,6 +30,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent
 DATASETS_DIR = ROOT / "datasets"
+EDIT_CACHE_BASE_DIR = ROOT / ".edit_dataset_cache"
 LEROBOT_SRC = ROOT / "lerobot" / "src"
 if str(LEROBOT_SRC) not in sys.path:
     sys.path.insert(0, str(LEROBOT_SRC))
@@ -34,12 +39,14 @@ LeRobotDataset: Any | None = None
 
 
 SYSTEM_FEATURES = {"timestamp", "frame_index", "episode_index", "index", "task_index"}
+MAX_DECODED_FRAME_CACHE_ITEMS = 12
 
 
 @dataclass
 class EpisodeData:
     features: dict[str, list[np.ndarray]]
     tasks: list[str]
+    visual_indices: list[int]
 
     @property
     def size(self) -> int:
@@ -198,8 +205,10 @@ class WebDatasetEditor:
         self.available_features: list[str] = []
         self.deleted_features: set[str] = set()
         self.deleted_episodes: set[int] = set()
+        self.modified_episodes: set[int] = set()
         self.episode_cache: dict[int, EpisodeData] = {}
-        self.frame_item_cache: dict[int, dict[str, Any]] = {}
+        self.frame_item_cache: OrderedDict[int, dict[str, Any]] = OrderedDict()
+        self.edit_store_dir: Path | None = None
         self.current_episode = 0
         self.current_frame = 0
         self.output_name = ""
@@ -223,8 +232,10 @@ class WebDatasetEditor:
             self.available_features = user_features(self.features_info)
             self.deleted_features.clear()
             self.deleted_episodes.clear()
+            self.modified_episodes.clear()
             self.episode_cache.clear()
             self.frame_item_cache.clear()
+            self.reset_edit_store()
             self.current_episode = 0
             self.current_frame = 0
             self.output_name = infer_output_name(name)
@@ -255,6 +266,7 @@ class WebDatasetEditor:
             "frames": size,
             "selectionStart": 0,
             "selectionEnd": max(size - 1, 0),
+            "autoSelection": self.auto_selection(data),
             "outputName": self.output_name,
             "status": self.status,
         }
@@ -265,6 +277,20 @@ class WebDatasetEditor:
     def valid_episode_count(self) -> int:
         return 0 if self.dataset is None else int(self.dataset.meta.total_episodes)
 
+    def auto_selection(self, data: EpisodeData | None) -> dict[str, int] | None:
+        if data is None or "observation.state" not in data.features:
+            return None
+        names = self.features_info.get("observation.state", {}).get("names") or ()
+        try:
+            joint7_index = list(names).index("joint7")
+        except ValueError:
+            joint7_index = 6
+        for frame_index, state in enumerate(data.features["observation.state"]):
+            flat_state = np.asarray(state).reshape(-1)
+            if joint7_index < flat_state.size and np.isclose(float(flat_state[joint7_index]), 1.0):
+                return {"start": max(frame_index - 10, 0), "end": frame_index}
+        return None
+
     def load_current_episode(self) -> None:
         if self.dataset is None:
             return
@@ -272,11 +298,67 @@ class WebDatasetEditor:
             return
         if self.current_episode not in self.episode_cache:
             self.status = f"Loading episode {self.current_episode} ..."
-            self.episode_cache[self.current_episode] = self.read_episode(self.current_episode)
+            if self.current_episode in self.modified_episodes:
+                self.episode_cache[self.current_episode] = self.load_modified_episode(self.current_episode)
+            else:
+                self.episode_cache[self.current_episode] = self.read_episode(self.current_episode)
+            self.trim_episode_cache()
         data = self.episode_cache[self.current_episode]
         self.current_frame = max(0, min(self.current_frame, max(data.size - 1, 0)))
 
-    def read_episode(self, episode_index: int) -> EpisodeData:
+    def trim_episode_cache(self) -> None:
+        keep = {self.current_episode}
+        removed = False
+        for episode_index in list(self.episode_cache):
+            if episode_index not in keep:
+                del self.episode_cache[episode_index]
+                removed = True
+        if removed:
+            gc.collect()
+
+    def mark_current_episode_modified(self) -> None:
+        self.modified_episodes.add(self.current_episode)
+        data = self.current_data()
+        if data is not None:
+            self.save_modified_episode(self.current_episode, data)
+            self.trim_episode_cache()
+
+    def reset_edit_store(self) -> None:
+        self.cleanup_edit_store()
+        EDIT_CACHE_BASE_DIR.mkdir(exist_ok=True)
+        self.edit_store_dir = Path(tempfile.mkdtemp(prefix="session-", dir=EDIT_CACHE_BASE_DIR))
+
+    def cleanup_edit_store(self) -> None:
+        if self.edit_store_dir is not None:
+            shutil.rmtree(self.edit_store_dir, ignore_errors=True)
+            self.edit_store_dir = None
+
+    def __del__(self) -> None:
+        self.cleanup_edit_store()
+
+    def modified_episode_path(self, episode_index: int) -> Path:
+        if self.edit_store_dir is None:
+            self.reset_edit_store()
+        assert self.edit_store_dir is not None
+        return self.edit_store_dir / f"episode-{episode_index:06d}.pkl"
+
+    def save_modified_episode(self, episode_index: int, data: EpisodeData) -> None:
+        path = self.modified_episode_path(episode_index)
+        tmp_path = path.with_suffix(".tmp")
+        with tmp_path.open("wb") as f:
+            pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+        tmp_path.replace(path)
+
+    def load_modified_episode(self, episode_index: int) -> EpisodeData:
+        path = self.modified_episode_path(episode_index)
+        with path.open("rb") as f:
+            return pickle.load(f)
+
+    def drop_modified_episode(self, episode_index: int) -> None:
+        self.modified_episodes.discard(episode_index)
+        self.modified_episode_path(episode_index).unlink(missing_ok=True)
+
+    def read_episode(self, episode_index: int, include_visuals: bool = False) -> EpisodeData:
         assert self.dataset is not None
         ep_meta = self.dataset.meta.episodes[episode_index]
         from_idx = int(ep_meta["dataset_from_index"])
@@ -284,31 +366,47 @@ class WebDatasetEditor:
         features = [
             name
             for name in self.available_features
-            if name not in self.deleted_features and self.features_info[name].get("dtype") not in {"video", "image"}
+            if name not in self.deleted_features
+            and (include_visuals or self.features_info[name].get("dtype") not in {"video", "image"})
         ]
         data = {feature: [] for feature in features}
         tasks: list[str] = []
         for idx in range(from_idx, to_idx):
-            item = self.dataset.hf_dataset[idx]
+            item = self.dataset[idx] if include_visuals else self.dataset.hf_dataset[idx]
             task_index = int(np.asarray(tensor_to_numpy(item["task_index"])).reshape(-1)[0])
             tasks.append(str(self.dataset.meta.tasks.iloc[task_index].name))
             for feature in features:
                 if feature not in item:
                     continue
-                data[feature].append(normalize_numeric(item[feature]))
-        return EpisodeData(data, tasks)
+                dtype = self.features_info[feature].get("dtype")
+                if dtype in {"video", "image"}:
+                    data[feature].append(normalize_image(item[feature]))
+                else:
+                    data[feature].append(normalize_numeric(item[feature]))
+        return EpisodeData(data, tasks, list(range(to_idx - from_idx)))
 
     def episode_dataset_index(self, frame: int) -> int:
+        data = self.current_data()
+        return self.episode_dataset_index_for(self.current_episode, data, frame)
+
+    def episode_dataset_index_for(self, episode_index: int, data: EpisodeData | None, frame: int) -> int:
         assert self.dataset is not None
-        ep_meta = self.dataset.meta.episodes[self.current_episode]
+        ep_meta = self.dataset.meta.episodes[episode_index]
         from_idx = int(ep_meta["dataset_from_index"])
         to_idx = int(ep_meta["dataset_to_index"])
+        if data is not None and data.visual_indices:
+            frame = max(0, min(frame, len(data.visual_indices) - 1))
+            frame = data.visual_indices[frame]
         return max(from_idx, min(from_idx + frame, to_idx - 1))
 
     def get_decoded_frame_item(self, dataset_index: int) -> dict[str, Any]:
-        if dataset_index not in self.frame_item_cache:
+        if dataset_index in self.frame_item_cache:
+            self.frame_item_cache.move_to_end(dataset_index)
+        else:
             assert self.dataset is not None
             self.frame_item_cache[dataset_index] = self.dataset[dataset_index]
+            while len(self.frame_item_cache) > MAX_DECODED_FRAME_CACHE_ITEMS:
+                self.frame_item_cache.popitem(last=False)
         return self.frame_item_cache[dataset_index]
 
     def ensure_current_episode_fully_loaded(self) -> EpisodeData | None:
@@ -335,6 +433,8 @@ class WebDatasetEditor:
             item = self.get_decoded_frame_item(dataset_index)
             for feature in missing_visual_features:
                 data.features[feature].append(normalize_image(item[feature]))
+        self.frame_item_cache.clear()
+        gc.collect()
         return data
 
     def change_episode(self, delta: int) -> dict[str, Any]:
@@ -348,6 +448,7 @@ class WebDatasetEditor:
             if 0 <= idx < total:
                 self.current_episode = idx
                 self.current_frame = 0
+                self.frame_item_cache.clear()
                 self.load_current_episode()
             self.status = "Ready"
             return self.state()
@@ -396,6 +497,7 @@ class WebDatasetEditor:
                 self.available_features = [name for name in self.available_features if name != feature]
                 for episode in self.episode_cache.values():
                     episode.features.pop(feature, None)
+                self.frame_item_cache.clear()
                 self.status = f"Feature marked for deletion: {feature}"
             return self.state()
 
@@ -405,6 +507,8 @@ class WebDatasetEditor:
                 return self.state()
             self.deleted_episodes.add(self.current_episode)
             self.episode_cache.pop(self.current_episode, None)
+            self.drop_modified_episode(self.current_episode)
+            self.frame_item_cache.clear()
             total = self.valid_episode_count()
             candidates = [idx for idx in range(total) if idx not in self.deleted_episodes]
             if candidates:
@@ -422,11 +526,9 @@ class WebDatasetEditor:
             start, end = self.clean_range(start, end, data.size)
             if start == 0 and end == data.size - 1:
                 return self.delete_episode()
-            data = self.ensure_current_episode_fully_loaded()
-            if data is None:
-                return self.state()
             keep = [idx for idx in range(data.size) if not (start <= idx <= end)]
             self.apply_index_mapping(data, keep)
+            self.mark_current_episode_modified()
             self.current_frame = min(start, max(data.size - 1, 0))
             self.status = f"Deleted frames {start}-{end}"
             return self.state()
@@ -439,10 +541,8 @@ class WebDatasetEditor:
             if whole:
                 start, end = 0, data.size - 1
             start, end = self.clean_range(start, end, data.size)
-            data = self.ensure_current_episode_fully_loaded()
-            if data is None:
-                return self.state()
             self.resample_range(data, start, end, factor)
+            self.mark_current_episode_modified()
             self.current_frame = min(start, max(data.size - 1, 0))
             self.status = f"Resampled frames {start}-{end}"
             return self.state()
@@ -458,6 +558,7 @@ class WebDatasetEditor:
         for feature, values in list(data.features.items()):
             data.features[feature] = [values[idx] for idx in indices]
         data.tasks = [data.tasks[idx] for idx in indices]
+        data.visual_indices = [data.visual_indices[idx] for idx in indices]
 
     def resample_range(self, data: EpisodeData, start: int, end: int, factor: float) -> None:
         factor = float(factor)
@@ -488,6 +589,12 @@ class WebDatasetEditor:
             data.features[feature] = before + resampled + after
         task_segment = data.tasks[start : end + 1]
         data.tasks = data.tasks[:start] + [task_segment[idx] for idx in nearest] + data.tasks[end + 1 :]
+        visual_segment = data.visual_indices[start : end + 1]
+        data.visual_indices = (
+            data.visual_indices[:start]
+            + [visual_segment[idx] for idx in nearest]
+            + data.visual_indices[end + 1 :]
+        )
 
     def export(self, output: str) -> dict[str, Any]:
         with self.lock:
@@ -504,12 +611,21 @@ class WebDatasetEditor:
             self.status = f"Exported: datasets/{output}"
             return self.state()
 
-    def make_output_frame(self, data: EpisodeData, frame_index: int) -> dict[str, Any]:
+    def make_output_frame(self, episode_index: int, data: EpisodeData, frame_index: int) -> dict[str, Any]:
         frame = {}
+        visual_item: dict[str, Any] | None = None
         for feature in self.available_features:
-            if feature in self.deleted_features or feature not in data.features:
+            if feature in self.deleted_features:
                 continue
-            frame[feature] = data.features[feature][frame_index]
+            dtype = self.features_info.get(feature, {}).get("dtype")
+            if feature in data.features:
+                frame[feature] = data.features[feature][frame_index]
+            elif dtype in {"video", "image"}:
+                if visual_item is None:
+                    visual_item = self.get_decoded_frame_item(
+                        self.episode_dataset_index_for(episode_index, data, frame_index)
+                    )
+                frame[feature] = normalize_image(visual_item[feature])
         task = data.tasks[frame_index] if frame_index < len(data.tasks) and data.tasks[frame_index] else "task"
         frame["task"] = task
         return frame
@@ -534,28 +650,35 @@ class WebDatasetEditor:
         )
         total = self.valid_episode_count()
         exported = 0
+        export_current_episode = self.current_episode
         old_available = self.available_features
         self.available_features = list(source_features.keys())
         try:
             for episode_index in range(total):
                 if episode_index in self.deleted_episodes:
                     continue
-                data = self.episode_cache.get(episode_index)
-                if data is None:
-                    data = self.read_episode(episode_index)
-                    self.episode_cache[episode_index] = data
-                old_episode = self.current_episode
-                self.current_episode = episode_index
-                data = self.ensure_current_episode_fully_loaded()
-                self.current_episode = old_episode
-                if data.size == 0:
-                    continue
-                for frame_index in range(data.size):
-                    output_dataset.add_frame(self.make_output_frame(data, frame_index))
-                output_dataset.save_episode()
-                exported += 1
+                if episode_index in self.modified_episodes:
+                    data = self.episode_cache.get(episode_index)
+                    if data is None:
+                        data = self.load_modified_episode(episode_index)
+                else:
+                    data = self.read_episode(episode_index, include_visuals=True)
+                try:
+                    if data.size == 0:
+                        continue
+                    for frame_index in range(data.size):
+                        output_dataset.add_frame(self.make_output_frame(episode_index, data, frame_index))
+                    output_dataset.save_episode()
+                    exported += 1
+                finally:
+                    if episode_index != export_current_episode:
+                        self.episode_cache.pop(episode_index, None)
+                        del data
+                        self.frame_item_cache.clear()
+                        gc.collect()
         finally:
             self.available_features = old_available
+            self.trim_episode_cache()
         output_dataset.finalize()
         if exported == 0:
             raise ValueError("No episodes were exported.")
@@ -576,6 +699,11 @@ button{cursor:pointer}.status{margin-left:auto;color:#52606d}
 .panel{background:#fff;border:1px solid #d7dce1;display:flex;flex-direction:column;min-width:0;min-height:0}
 .panel select{margin:6px}.panel img{width:100%;height:calc(100% - 42px);object-fit:contain;object-position:center;min-height:0;background:#fff}
 .timeline{background:#fff;border-top:1px solid #d7dce1;padding:10px;display:grid;grid-template-columns:110px 1fr 120px;gap:8px;align-items:center}
+.frame-track{position:relative;height:30px;display:flex;align-items:center}
+.frame-track input[type=range]{position:relative;z-index:1;background:transparent}
+.range-marker{position:absolute;top:2px;width:2px;height:26px;background:#0b7a75;z-index:2;pointer-events:none;display:none}
+.range-marker.end{background:#c2410c}
+.range-marker::after{content:attr(data-label);position:absolute;top:-11px;left:50%;transform:translateX(-50%);font-size:10px;font-weight:700;color:inherit}
 .actions{grid-column:1/4;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .anchor{display:inline-flex;align-items:center;gap:4px;background:#eef2f5;border:1px solid #ccd3da;border-radius:4px;padding:4px 6px}
 .anchor button{padding:0 5px}
@@ -597,7 +725,7 @@ input[type=range]{width:100%}
   <div class="panel"><select id="feature2"></select><img id="panel2"></div>
 </div>
 <div class="timeline">
-  <label>Frame</label><input id="frame" type="range" min="0" max="0" step="1"><span id="frameLabel">0 / 0</span>
+  <label>Frame</label><div class="frame-track"><input id="frame" type="range" min="0" max="0" step="1"><span id="startMarker" class="range-marker" data-label="S"></span><span id="endMarker" class="range-marker end" data-label="E"></span></div><span id="frameLabel">0 / 0</span>
   <div class="actions">
     <button id="setStart">Set Start</button>
     <button id="setEnd">Set End</button>
@@ -641,7 +769,7 @@ function fill(sel, values, keep){
   values.forEach(v => { const o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o); });
   if(values.includes(old)) sel.value=old;
 }
-function update(s){
+function update(s, applyAutoSelection=false){
   state=s;
   fill(ids('dataset'), s.datasets, s.selectedDataset);
   fill(ids('deleteFeature'), s.features, ids('deleteFeature').value);
@@ -652,6 +780,10 @@ function update(s){
   const max = Math.max((s.frames||0)-1,0);
   ids('frame').max=max;
   ids('frame').value=Math.min(s.frame||0,max);
+  if(applyAutoSelection && s.autoSelection){
+    anchorStart = Math.min(Math.max(+s.autoSelection.start, 0), max);
+    anchorEnd = Math.min(Math.max(+s.autoSelection.end, 0), max);
+  }
   if(anchorStart !== null) anchorStart = Math.min(anchorStart, max);
   if(anchorEnd !== null) anchorEnd = Math.min(anchorEnd, max);
   ids('frameLabel').textContent = `${ids('frame').value} / ${max}`;
@@ -667,6 +799,18 @@ function currentRange(){
 function renderAnchors(){
   ids('startLabel').textContent = anchorStart === null ? 'unset' : anchorStart;
   ids('endLabel').textContent = anchorEnd === null ? 'unset' : anchorEnd;
+  renderAnchorMarker(ids('startMarker'), anchorStart);
+  renderAnchorMarker(ids('endMarker'), anchorEnd);
+}
+function renderAnchorMarker(marker, frame){
+  const max = +(ids('frame').max || 0);
+  if(frame === null || max <= 0){
+    marker.style.display = 'none';
+    return;
+  }
+  const pct = Math.max(0, Math.min(+frame, max)) / max * 100;
+  marker.style.left = `${pct}%`;
+  marker.style.display = 'block';
 }
 function clearAnchors(){
   anchorStart=null;
@@ -718,10 +862,10 @@ function scheduleFrameRefresh(){
     refreshPanels();
   }, 45);
 }
-async function loadInitial(){ update(await api('/api/state')); }
-ids('dataset').onchange=async()=>{clearAnchors(); update(await busy('Loading dataset ...',()=>api('/api/select',{name:ids('dataset').value})));};
-ids('prev').onclick=async()=>{clearAnchors(); update(await busy('Loading episode ...',()=>api('/api/episode',{delta:-1})));};
-ids('next').onclick=async()=>{clearAnchors(); update(await busy('Loading episode ...',()=>api('/api/episode',{delta:1})));};
+async function loadInitial(){ update(await api('/api/state'), true); }
+ids('dataset').onchange=async()=>{clearAnchors(); update(await busy('Loading dataset ...',()=>api('/api/select',{name:ids('dataset').value})), true);};
+ids('prev').onclick=async()=>{clearAnchors(); update(await busy('Loading episode ...',()=>api('/api/episode',{delta:-1})), true);};
+ids('next').onclick=async()=>{clearAnchors(); update(await busy('Loading episode ...',()=>api('/api/episode',{delta:1})), true);};
 ids('frame').oninput=scheduleFrameRefresh;
 for(let i=0;i<3;i++) ids('feature'+i).onchange=refreshPanels;
 ids('setStart').onclick=()=>{anchorStart=+ids('frame').value; renderAnchors();};
@@ -730,10 +874,10 @@ ids('clearStart').onclick=()=>{anchorStart=null; renderAnchors();};
 ids('clearEnd').onclick=()=>{anchorEnd=null; renderAnchors();};
 ids('all').onclick=()=>{anchorStart=0; anchorEnd=+ids('frame').max; renderAnchors();};
 ids('deleteFeatureBtn').onclick=async()=>{if(confirm('Delete feature?')) update(await api('/api/delete_feature',{feature:ids('deleteFeature').value}));};
-ids('deleteEpisode').onclick=async()=>{if(confirm('Delete episode?')){clearAnchors(); update(await busy('Loading episode ...',()=>api('/api/delete_episode',{})));}};
-ids('deleteRange').onclick=async()=>{const [start,end]=currentRange(); if(confirm(`Delete frames ${start}-${end}?`)){clearAnchors(); update(await busy('Loading episode videos ...',()=>api('/api/delete_range',{start,end})));}};
-ids('speedRange').onclick=async()=>{const [start,end]=currentRange(); clearAnchors(); update(await busy('Loading episode videos ...',()=>api('/api/resample',{start,end,factor:+ids('factor').value,whole:false})));};
-ids('speedEpisode').onclick=async()=>{clearAnchors(); update(await busy('Loading episode videos ...',()=>api('/api/resample',{factor:+ids('factor').value,whole:true})));};
+ids('deleteEpisode').onclick=async()=>{if(confirm('Delete episode?')){clearAnchors(); update(await busy('Loading episode ...',()=>api('/api/delete_episode',{})), true);}};
+ids('deleteRange').onclick=async()=>{const [start,end]=currentRange(); if(confirm(`Delete frames ${start}-${end}?`)){clearAnchors(); update(await busy('Editing frames ...',()=>api('/api/delete_range',{start,end})));}};
+ids('speedRange').onclick=async()=>{const [start,end]=currentRange(); clearAnchors(); update(await busy('Editing frames ...',()=>api('/api/resample',{start,end,factor:+ids('factor').value,whole:false})));};
+ids('speedEpisode').onclick=async()=>{clearAnchors(); update(await busy('Editing frames ...',()=>api('/api/resample',{factor:+ids('factor').value,whole:true})));};
 ids('export').onclick=async()=>{update(await busy('Exporting ...',()=>api('/api/export',{output:ids('output').value})));};
 loadInitial().catch(e=>alert(e.message));
 </script>
@@ -830,7 +974,10 @@ def run_web(host: str = "127.0.0.1", port: int = 8765) -> None:
         webbrowser.open(url)
     except Exception:
         pass
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        editor.cleanup_edit_store()
 
 
 def main() -> None:
