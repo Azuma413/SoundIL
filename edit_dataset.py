@@ -376,12 +376,7 @@ class WebDatasetEditor:
                     frame = max(0, min(frame, max(data.size - 1, 0)))
                     item = self.get_decoded_frame_item(self.episode_dataset_index(frame))
                     image_array = normalize_image(item[feature])
-                image = Image.fromarray(image_array).convert("RGB")
-                canvas = Image.new("RGB", (520, 340), "white")
-                image.thumbnail((520, 310), Image.Resampling.BILINEAR)
-                canvas.paste(image, ((520 - image.width) // 2, 28 + (312 - image.height) // 2))
-                ImageDraw.Draw(canvas).text((8, 8), f"{feature} frame {frame}", fill=(20, 20, 20))
-                return image_to_png_bytes(canvas)
+                return image_to_png_bytes(Image.fromarray(image_array).convert("RGB"))
             if feature not in data.features:
                 return image_to_png_bytes(Image.new("RGB", (520, 340), "white"))
             values = data.features[feature]
@@ -578,8 +573,8 @@ body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background
 select,input,button{font:inherit;padding:5px 8px}
 button{cursor:pointer}.status{margin-left:auto;color:#52606d}
 .panels{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:8px;height:calc(100vh - 185px);box-sizing:border-box}
-.panel{background:#fff;border:1px solid #d7dce1;display:flex;flex-direction:column;min-width:0}
-.panel select{margin:6px}.panel img{width:100%;height:100%;object-fit:contain;min-height:0}
+.panel{background:#fff;border:1px solid #d7dce1;display:flex;flex-direction:column;min-width:0;min-height:0}
+.panel select{margin:6px}.panel img{width:100%;height:calc(100% - 42px);object-fit:contain;object-position:center;min-height:0;background:#fff}
 .timeline{background:#fff;border-top:1px solid #d7dce1;padding:10px;display:grid;grid-template-columns:110px 1fr 120px;gap:8px;align-items:center}
 .actions{grid-column:1/4;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .anchor{display:inline-flex;align-items:center;gap:4px;background:#eef2f5;border:1px solid #ccd3da;border-radius:4px;padding:4px 6px}
@@ -620,6 +615,9 @@ let state=null;
 let anchorStart=null;
 let anchorEnd=null;
 let panelGeneration=0;
+let frameRequestTimer=null;
+let frameRequestInFlight=false;
+let pendingServerFrame=null;
 const ids = x => document.getElementById(x);
 async function api(path, body=null){
   const opt = body ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)} : {};
@@ -696,11 +694,35 @@ function refreshPanels(){
       .catch(() => {});
   }
 }
+function syncFrameToServer(frame){
+  pendingServerFrame = frame;
+  if(frameRequestInFlight) return;
+  frameRequestInFlight = true;
+  const sendFrame = pendingServerFrame;
+  pendingServerFrame = null;
+  api('/api/frame',{frame:sendFrame})
+    .then(s => { state = s; })
+    .catch(() => {})
+    .finally(() => {
+      frameRequestInFlight = false;
+      if(pendingServerFrame !== null) syncFrameToServer(pendingServerFrame);
+    });
+}
+function scheduleFrameRefresh(){
+  ids('frameLabel').textContent=`${ids('frame').value} / ${ids('frame').max}`;
+  if(frameRequestTimer !== null) clearTimeout(frameRequestTimer);
+  frameRequestTimer = setTimeout(() => {
+    frameRequestTimer = null;
+    const frame = +ids('frame').value;
+    syncFrameToServer(frame);
+    refreshPanels();
+  }, 45);
+}
 async function loadInitial(){ update(await api('/api/state')); }
 ids('dataset').onchange=async()=>{clearAnchors(); update(await busy('Loading dataset ...',()=>api('/api/select',{name:ids('dataset').value})));};
 ids('prev').onclick=async()=>{clearAnchors(); update(await busy('Loading episode ...',()=>api('/api/episode',{delta:-1})));};
 ids('next').onclick=async()=>{clearAnchors(); update(await busy('Loading episode ...',()=>api('/api/episode',{delta:1})));};
-ids('frame').oninput=async()=>{ ids('frameLabel').textContent=`${ids('frame').value} / ${ids('frame').max}`; await api('/api/frame',{frame:+ids('frame').value}); refreshPanels(); };
+ids('frame').oninput=scheduleFrameRefresh;
 for(let i=0;i<3;i++) ids('feature'+i).onchange=refreshPanels;
 ids('setStart').onclick=()=>{anchorStart=+ids('frame').value; renderAnchors();};
 ids('setEnd').onclick=()=>{anchorEnd=+ids('frame').value; renderAnchors();};

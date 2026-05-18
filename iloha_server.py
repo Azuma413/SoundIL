@@ -88,6 +88,7 @@ class RobotCommunicationNode:
         self.current_sound_condition = None
         self.awaiting_recording_trigger = False
         self.first_action_time: Optional[float] = None
+        self.previous_recorded_action_state: Optional[np.ndarray] = None
         self.rng = np.random.default_rng()
 
     def _get_saved_episode_count(self) -> int:
@@ -290,6 +291,7 @@ class RobotCommunicationNode:
             self.video_encoding_manager = VideoEncodingManager(self.current_dataset)
             self.video_encoding_manager.__enter__()
             print(f"データセット作成完了: {repo_id}")
+            self.previous_recorded_action_state = None
             self.recording_ready = True
             self.awaiting_recording_trigger = True
             self.first_action_time = None
@@ -397,6 +399,7 @@ class RobotCommunicationNode:
             self.awaiting_recording_trigger = True
             self.first_action_time = None
             self.recording_start_time = None
+            self.previous_recorded_action_state = None
             if self.soundreal_enabled:
                 self._set_next_sound_condition()
             self.recording_task = asyncio.create_task(self.record_episode())
@@ -427,6 +430,7 @@ class RobotCommunicationNode:
             self.robot.cameras = {}
         self.current_dataset = None
         self.recording_start_time = None
+        self.previous_recorded_action_state = None
         self.recording_ready = False
 
     async def _finish_dataset_and_shutdown_robot(self):
@@ -473,22 +477,30 @@ class RobotCommunicationNode:
                 obs[joint_name] = joint_state[i]
         return obs
 
+    def _get_observation_state_array(self, obs: dict) -> np.ndarray:
+        """obs 内の observation.state 相当の関節値を配列で返す"""
+        return np.array([obs[joint_name] for joint_name in self.state_names], dtype=np.float32)
+
+    def _overwrite_observation_state(self, obs: dict, state: np.ndarray) -> None:
+        """obs 内の observation.state 相当の関節値を指定値で置き換える"""
+        for idx, joint_name in enumerate(self.state_names):
+            obs[joint_name] = float(state[idx])
+
     def _record_frame_sync(self) -> None:
         """1フレーム分の観測構築とデータセット書き込みをワーカースレッドで行う"""
         if self.current_dataset is None:
             raise RuntimeError("データセットが初期化されていません")
 
         obs = self._capture_latest_observation()
-        with self.action_lock:
-            latest_action = None if self.latest_action is None else self.latest_action.copy()
-        if latest_action is None:
-            latest_action = (
-                right_arm_full_slice(self.robot.old_action)
-                if self.soundreal_enabled
-                else self.robot.old_action.copy()
-            )
+        current_state = self._get_observation_state_array(obs)
+        previous_action_state = (
+            self.previous_recorded_action_state
+            if self.previous_recorded_action_state is not None
+            else current_state
+        )
+        self._overwrite_observation_state(obs, previous_action_state)
         action_data = {
-            joint_name: float(latest_action[idx]) for idx, joint_name in enumerate(self.state_names)
+            joint_name: float(current_state[idx]) for idx, joint_name in enumerate(self.state_names)
         }
         observation_frame = build_dataset_frame(
             self.current_dataset.features, obs, prefix="observation"
@@ -498,6 +510,7 @@ class RobotCommunicationNode:
         )
         frame = {**observation_frame, **action_frame, "task": self.task}
         self.current_dataset.add_frame(frame)
+        self.previous_recorded_action_state = current_state.copy()
 
     async def record_episode(self):
         """30FPSで画像と関節角度を記録"""

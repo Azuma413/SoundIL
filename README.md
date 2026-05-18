@@ -75,3 +75,21 @@ uv run plot_tsne.py \
   --episode-num 100 \
   --hidden-reduction mean
 ```
+
+## Datasetのupdate
+actionを更新する
+```bash
+uv run update_action.py soundRealShake-m4-f10-s2-p0 -o soundRealShake-shifted
+```
+actionとstateをvideoに合わせる
+```bash
+uv run shift_action_state.py 5 soundRealAll-shifted -o soundRealAll-shifted-as
+```
+edit
+```bash
+uv run edit_dataset.py
+```
+actionとstateを元に戻す．
+```bash
+uv run shift_action_state.py -5 soundRealAll-edited -o soundRealAll-edited-as
+```
