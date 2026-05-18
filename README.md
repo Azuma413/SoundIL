@@ -64,24 +64,32 @@ uv run lerobot-train \
   --batch_size=8 \
   --steps=100000
 ```
+## t-SNEプロット
+`color-by`は [`sound_type`, `sound_coordinate`, `success`] の中から選べる．選ばなければ全部プロットする．
 
-## 実機
-- iloha_server.py
-SoundAllタスクのデータを集めるときは
-IS_SOUND_SHAKE=False
-にする。
-SoundShakeタスクのデータを集めるときはTrueにする。
-- iloha_eval.py
-SoundShakeタスクをやるときは`--is-sound-shake`オプションをつける。
-
-leftが奥、rightが手前
-index 0がブザー（奥の箱に入れる）、1がひよこ（手前の箱）
-
-soundAll
+`hidden-reduction`は`none`ならhiddenをstepごとに分割し，それぞれを点として使い，`first`は先頭，`last`は末尾，`mean`はhiddenのstep方向平均を1点にする．
 ```bash
-uv run iloha_eval.py --policy_path outputs/train/act_soundRealAll-m4-f10-s2-p0_seed0/checkpoints/200000/pretrained_model --dataset_path datasets/RealAll-m4-f10-s2-p0 --output_root datasets/eval --episode_time_s 15 --num_episodes 2 --save_data --sound_index 0 --speaker left
+uv run plot_tsne.py \
+  --training-name act_sound-m4-f10-s2-p0_0_seed0 \
+  --checkpoint-step 100000 \
+  --episode-num 100 \
+  --hidden-reduction mean
 ```
-soundShake
+
+## Datasetのupdate
+actionを更新する
 ```bash
-uv run iloha_eval.py --policy_path outputs/train/act_soundRealShake-m4-f10-s2-p0_seed0/checkpoints/200000/pretrained_model --dataset_path datasets/RealShake-m4-f10-s2-p0 --output_root datasets/eval --episode_time_s 20 --num_episodes 1 --save_data --is-sound-shake
+uv run update_action.py soundRealShake-m4-f10-s2-p0 -o soundRealShake-shifted
+```
+actionとstateをvideoに合わせる
+```bash
+uv run shift_action_state.py 5 soundRealAll-shifted -o soundRealAll-shifted-as
+```
+edit
+```bash
+uv run edit_dataset.py
+```
+actionとstateを元に戻す．
+```bash
+uv run shift_action_state.py -5 soundRealAll-edited -o soundRealAll-edited-as
 ```

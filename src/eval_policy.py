@@ -197,7 +197,13 @@ def main(training_name, observation_height, observation_width, episode_num, show
         dataset_stats=dataset.meta.stats,
     )
     
-    env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
+    env = GenesisEnv(
+        task=task_name,
+        observation_height=observation_height,
+        observation_width=observation_width,
+        show_viewer=show_viewer,
+        use_legacy_sound_config=True,
+    )
     print("Policy Input Features:", policy.config.input_features)
     print("Environment Observation Space:", env.observation_space)
     print("Policy Output Features:", policy.config.output_features)
@@ -325,7 +331,13 @@ def main(training_name, observation_height, observation_width, episode_num, show
             print(f"⚠️ Error occurred during episode {ep+1}: {e}")
             print("🔄 Retrying episode...")
             env.close()
-            env = GenesisEnv(task=task_name, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer)
+            env = GenesisEnv(
+                task=task_name,
+                observation_height=observation_height,
+                observation_width=observation_width,
+                show_viewer=show_viewer,
+                use_legacy_sound_config=True,
+            )
             continue
     env.close()
     success_rate = (success_num / episode_num) * 100

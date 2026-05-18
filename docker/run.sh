@@ -100,11 +100,7 @@ run_eval() {
 
 run_train() {
     local seed="$1"
-    local training_name="${POLICY}_${DATASET_NAME}"
-
-    if [[ "${MULTI_SEED}" == "true" ]]; then
-        training_name+="_seed${seed}"
-    fi
+    local training_name="${POLICY}_${DATASET_NAME}_seed${seed}"
 
     CMD=(
         uv run lerobot-train
@@ -276,10 +272,6 @@ inside_main() {
             append_policy_args "${POLICY}"
 
             IFS=' ' read -r -a SEED_LIST <<< "${SEEDS//,/ }"
-            MULTI_SEED="false"
-            if [[ ${#SEED_LIST[@]} -gt 1 ]]; then
-                MULTI_SEED="true"
-            fi
 
             for seed in "${SEED_LIST[@]}"; do
                 run_train "${seed}"
@@ -297,6 +289,16 @@ ensure_image() {
     if ! docker image inspect "${IMAGE_TAG}" >/dev/null 2>&1; then
         docker build -t "${IMAGE_TAG}" -f "${ROOT_DIR}/Dockerfile" "${ROOT_DIR}"
     fi
+}
+
+prepare_auth_mounts() {
+    mkdir -p \
+        "${HOME}/.cache/huggingface" \
+        "${HOME}/.cache/wandb" \
+        "${HOME}/.config/wandb"
+
+    touch "${HOME}/.netrc"
+    chmod 600 "${HOME}/.netrc" || true
 }
 
 host_main() {
@@ -323,6 +325,7 @@ host_main() {
     done
 
     ensure_image
+    prepare_auth_mounts
 
     HOST_UID="$(id -u)"
     HOST_GID="$(id -g)"
@@ -338,24 +341,16 @@ host_main() {
         -v "${ROOT_DIR}:${CONTAINER_WORKDIR}"
         -e CUDA_VISIBLE_DEVICES="${CONTAINER_CUDA_VISIBLE_DEVICES}"
         -e WANDB_API_KEY="${WANDB_API_KEY:-}"
+        -e WANDB_CONFIG_DIR="/root/.config/wandb"
+        -e WANDB_CACHE_DIR="/root/.cache/wandb"
         -e HF_TOKEN="${HF_TOKEN:-}"
+        -e HF_HOME="/root/.cache/huggingface"
+        -e HUGGINGFACE_HUB_CACHE="/root/.cache/huggingface/hub"
+        -v "${HOME}/.cache/huggingface:/root/.cache/huggingface"
+        -v "${HOME}/.cache/wandb:/root/.cache/wandb"
+        -v "${HOME}/.config/wandb:/root/.config/wandb"
+        -v "${HOME}/.netrc:/root/.netrc"
     )
-
-    if [[ -d "${HOME}/.cache/huggingface" ]]; then
-        DOCKER_ARGS+=(-v "${HOME}/.cache/huggingface:/root/.cache/huggingface")
-    fi
-
-    if [[ -d "${HOME}/.cache/wandb" ]]; then
-        DOCKER_ARGS+=(-v "${HOME}/.cache/wandb:/root/.cache/wandb")
-    fi
-
-    if [[ -d "${HOME}/.config/wandb" ]]; then
-        DOCKER_ARGS+=(-v "${HOME}/.config/wandb:/root/.config/wandb")
-    fi
-
-    if [[ -f "${HOME}/.netrc" ]]; then
-        DOCKER_ARGS+=(-v "${HOME}/.netrc:/root/.netrc:ro")
-    fi
 
     docker "${DOCKER_ARGS[@]}" "${IMAGE_TAG}" bash docker/run.sh "__inside__" "${MODE}" "${FORWARD_ARGS[@]}"
     STATUS=$?

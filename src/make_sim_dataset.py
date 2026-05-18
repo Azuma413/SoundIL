@@ -207,8 +207,24 @@ def initialize_dataset(env: GenesisEnv) -> LeRobotDataset:
     )
     return lerobot_dataset
 
-def main(task, stage_dict, observation_height=480, observation_width=640, episode_num=1, show_viewer=False, sound_config=None):
-    env = GenesisEnv(task=task, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer, sound_config=sound_config)
+def main(
+    task,
+    stage_dict,
+    observation_height=480,
+    observation_width=640,
+    episode_num=1,
+    show_viewer=False,
+    sound_config=None,
+    use_legacy_sound_config=True,
+):
+    env = GenesisEnv(
+        task=task,
+        observation_height=observation_height,
+        observation_width=observation_width,
+        show_viewer=show_viewer,
+        sound_config=sound_config,
+        use_legacy_sound_config=use_legacy_sound_config,
+    )
     dataset = initialize_dataset(env)
     episode_configs = build_balanced_episode_configs(task, episode_num)
     ep = 0
@@ -292,7 +308,14 @@ def main(task, stage_dict, observation_height=480, observation_width=640, episod
             print(f"⚠️ Error occurred during episode {ep+1}: {e}")
             print("🔄 Retrying episode...")
             env.close()
-            env = GenesisEnv(task=task, observation_height=observation_height, observation_width=observation_width, show_viewer=show_viewer, sound_config=sound_config)
+            env = GenesisEnv(
+                task=task,
+                observation_height=observation_height,
+                observation_width=observation_width,
+                show_viewer=show_viewer,
+                sound_config=sound_config,
+                use_legacy_sound_config=use_legacy_sound_config,
+            )
             continue
     env.close()
 if __name__ == "__main__":
@@ -318,7 +341,16 @@ if __name__ == "__main__":
         # GenesisEnv内で解析されるため、sound_configはNoneで渡す
         sound_config = None 
         
-        main(episode_num=100, task=task, stage_dict=stage_dict, observation_height=224, observation_width=224, show_viewer=False, sound_config=sound_config)
+        main(
+            episode_num=100,
+            task=task,
+            stage_dict=stage_dict,
+            observation_height=224,
+            observation_width=224,
+            show_viewer=False,
+            sound_config=sound_config,
+            use_legacy_sound_config=True,
+        )
 
 
 # normal: 音は関係なく，赤，青，緑のCubeから指定された色のCubeを箱に入れるタスク

@@ -13,12 +13,14 @@
 ./docker/run.sh login
 ```
 
-以下は存在する場合に自動でマウントされるため、認証情報を再利用できます。
+以下は自動で作成・マウントされるため、`login` で入力した認証情報は次回以降の `train` / `train-eval` / `eval` でも再利用できます。
 
 - `${HOME}/.cache/huggingface`
 - `${HOME}/.cache/wandb`
 - `${HOME}/.config/wandb`
 - `${HOME}/.netrc`
+
+`pi0` は gated model の `google/paligemma-3b-pt-224` を使うため、Hugging Face 側でモデル利用申請が承認されたアカウントでログインしてください。
 
 ### 学習と評価
 
@@ -28,8 +30,8 @@
 ./docker/run.sh train-eval \
   --dataset-name sound-m4-f10-s2-p0_0 \
   --gpu 0 \
-  --policy diffusion \
-  --seeds 0,1,2 \
+  --policy act \
+  --seeds 0 \
   --steps 100000 \
   --save-freq 10000
 ```
@@ -46,28 +48,48 @@
 - `--extra-train-arg`: `lerobot-train` に追加の引数を渡す
 - `--extra-eval-arg`: `src/eval_policy.py` に追加の引数を渡す
 
-複数 seed を指定すると、出力先は `outputs/train/<policy>_<dataset>_seed<seed>` に分かれます。
+seed の数に関係なく、出力先は `outputs/train/<policy>_<dataset>_seed<seed>` になります。
 
 ### 学習のみ
 
 ```bash
 ./docker/run.sh train \
-  --dataset-name sound-m4-f10-s1-p0_0 \
-  --policy act
+  --dataset-name sound-m4-f10-s2-p0_0 \
+  --gpu 1 \
+  --seeds 2 \
+  --steps 100000 \
+  --save-freq 10000 \
+  --policy vqbet
 ```
 
 ### 評価のみ
 
 ```bash
-./docker/run.sh eval \
-  --training-name act_sound-m4-f10-s1-p0_0 \
-  --dataset-name sound-m4-f10-s1-p0_0 \
-  --checkpoint-step 100000 \
-  --episode-num 100
+for step in 20000 40000 60000 80000 100000 120000 140000 160000 180000; do
+  ./docker/run.sh eval \
+    --training-name diffusion_soundShake-m4-f10-s2-p0_0_seed2 \
+    --gpu 0 \
+    --dataset-name soundShake-m4-f10-s2-p0_0 \
+    --checkpoint-step "$step" \
+    --episode-num 100
+done
 ```
+
+./docker/run.sh eval \
+  --training-name pi0_soundShake-m4-f10-s1-p0_0_seed2 \
+  --gpu 0 \
+  --dataset-name soundShake-m4-f10-s1-p0_0 \
+  --checkpoint-step 200000 \
+  --episode-num 100
 
 ### ヘルプ
 
 ```bash
 ./docker/run.sh --help
+```
+
+### t-SNEプロット
+policy, dataset name, gpu indexの順
+```bash
+./docker/tsne.sh diffusion soundDiff-m4-f10-s2-p0 2
 ```
