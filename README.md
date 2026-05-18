@@ -93,3 +93,7 @@ actionとstateを元に戻す．
 ```bash
 uv run shift_action_state.py -5 soundRealAll-edited -o soundRealAll-edited-as
 ```
+## 実機評価
+```bash
+uv run iloha_eval.py --policy_path outputs/train/act_soundRealAll-m4-f10-s2-p0_seed1/checkpoints/200000/pretrained_model --dataset_path datasets/soundRealAll-m4-f10-s2-p0 --output_root datasets/eval --episode_time_s 15 --num_episodes 1 --save_data --sound_index 0 --speaker right
+```
