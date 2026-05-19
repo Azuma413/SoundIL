@@ -52,7 +52,7 @@ class RobotCommunicationNode:
     DATASET_ROOT = Path("datasets")
     DATASET_FPS = 30
     EPISODE_MAX_TIME_S = 180
-    CAMERA_MAX_FRAME_AGE_MS = 250
+    CAMERA_MAX_FRAME_AGE_MS = 80
     # カメラ設定
     CAMERA_CONFIGS = DEFAULT_CAMERA_CONFIGS
 

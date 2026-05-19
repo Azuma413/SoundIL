@@ -155,9 +155,10 @@ def prompt_episode_success(episode_number: int, total_episodes: int) -> bool:
         print("無効な入力です。1（成功）または 2（失敗）を入力してください。")
 
 
-def write_episode_success_csv(dataset_path: Path, results: list[dict]) -> Path:
+def append_episode_success_csv(dataset_path: Path, result: dict) -> Path:
     csv_path = dataset_path / "episode_success.csv"
-    with csv_path.open("w", newline="", encoding="utf-8") as file:
+    write_header = not csv_path.exists()
+    with csv_path.open("a", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(
             file,
             fieldnames=[
@@ -170,8 +171,9 @@ def write_episode_success_csv(dataset_path: Path, results: list[dict]) -> Path:
                 "speaker",
             ],
         )
-        writer.writeheader()
-        writer.writerows(results)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(result)
     return csv_path
 
 
@@ -221,10 +223,21 @@ def _normalize_feature_spec(feature: dict) -> tuple[str, tuple, Optional[tuple]]
     )
 
 
-def validate_soundreal_dataset_features(features: dict) -> None:
+def is_sound_observation_feature(key: str) -> bool:
+    return key in {
+        "observation.images.sound0",
+        "observation.images.sound1",
+        "observation.images.spec",
+    }
+
+
+def validate_soundreal_dataset_features(features: dict, required_keys: Optional[set[str]] = None) -> None:
+    required_keys = required_keys or set()
     expected = build_soundreal_dataset_features()
     for key, expected_feature in expected.items():
         if key not in features:
+            if is_sound_observation_feature(key) and key not in required_keys:
+                continue
             raise ValueError(f"Dataset is missing required feature: {key}")
         actual = _normalize_feature_spec(features[key])
         expected_norm = _normalize_feature_spec(expected_feature)
@@ -234,7 +247,34 @@ def validate_soundreal_dataset_features(features: dict) -> None:
             )
 
 
-def capture_soundreal_observation(robot: Iloha, cameras: dict, sound_source: RealSoundObservationSource) -> dict:
+def validate_policy_dataset_features(features: dict, policy_cfg: PreTrainedConfig) -> None:
+    required_keys = set(policy_cfg.input_features) | set(policy_cfg.output_features)
+    missing_keys = sorted(key for key in required_keys if key not in features)
+    if missing_keys:
+        raise ValueError(
+            "Dataset is missing feature(s) required by the policy: "
+            + ", ".join(missing_keys)
+        )
+
+
+def build_eval_dataset_features(reference_features: dict) -> dict:
+    expected = build_soundreal_dataset_features()
+    return {
+        key: expected_feature
+        for key, expected_feature in expected.items()
+        if key in reference_features
+    }
+
+
+def requires_sound_observations(features: dict) -> bool:
+    return any(is_sound_observation_feature(key) for key in features)
+
+
+def capture_soundreal_observation(
+    robot: Iloha,
+    cameras: dict,
+    sound_source: Optional[RealSoundObservationSource],
+) -> dict:
     obs = {}
     for name, camera in cameras.items():
         try:
@@ -243,7 +283,8 @@ def capture_soundreal_observation(robot: Iloha, cameras: dict, sound_source: Rea
             frame = camera.async_read(timeout_ms=CAMERA_MAX_FRAME_AGE_MS)
         obs[name] = preprocess_soundreal_camera_frame(name, frame)
 
-    obs.update(sound_source.get_latest_images())
+    if sound_source is not None:
+        obs.update(sound_source.get_latest_images())
     obs.update(full_action_to_right_feature_dict(robot.old_action))
     return obs
 
@@ -281,12 +322,12 @@ def load_local_dataset(dataset_path: Path) -> LeRobotDataset:
 
 
 def override_act_eval_config(policy) -> None:
-    policy.config.n_action_steps = 1
-    policy.config.temporal_ensemble_coeff = 0.01
-    policy.temporal_ensembler = ACTTemporalEnsembler(
-        policy.config.temporal_ensemble_coeff,
-        policy.config.chunk_size,
-    )
+    policy.config.n_action_steps = 30
+    # policy.config.temporal_ensemble_coeff = 0.1 # 0.01
+    # policy.temporal_ensembler = ACTTemporalEnsembler(
+    #     policy.config.temporal_ensemble_coeff,
+    #     policy.config.chunk_size,
+    # )
     policy.reset()
     print(
         "Overriding ACT eval config: "
@@ -340,6 +381,10 @@ async def evaluation_loop(
         except Exception as exc:
             print(f"アクション予測エラー: {exc}")
             raise
+
+        ######### 補正 #########
+        right_action[1] -= 0.03
+        #######################
 
         if first_action_time is None:
             first_action_time = time.time()
@@ -396,14 +441,20 @@ async def main(args) -> None:
         raise FileNotFoundError(f"Dataset path not found: {dataset_path}")
 
     dataset_for_stats = load_local_dataset(dataset_path)
-    validate_soundreal_dataset_features(dataset_for_stats.features)
-
     policy_cfg = PreTrainedConfig.from_pretrained(policy_path)
     if policy_cfg.type not in SUPPORTED_POLICY_TYPES:
         raise ValueError(
             f"Unsupported policy type: {policy_cfg.type}. "
             f"Only {sorted(SUPPORTED_POLICY_TYPES)} are supported."
         )
+    required_feature_keys = set(policy_cfg.input_features) | set(policy_cfg.output_features)
+    validate_soundreal_dataset_features(dataset_for_stats.features, required_feature_keys)
+    validate_policy_dataset_features(dataset_for_stats.features, policy_cfg)
+    eval_dataset_features = build_eval_dataset_features(dataset_for_stats.features)
+    needs_sound_observations = (
+        requires_sound_observations(eval_dataset_features)
+        or requires_sound_observations(policy_cfg.input_features)
+    )
 
     device = get_safe_torch_device(args.device)
     policy_cfg.pretrained_path = policy_path
@@ -411,8 +462,8 @@ async def main(args) -> None:
     policy = make_policy(policy_cfg, ds_meta=dataset_for_stats.meta)
     if policy_cfg.type == "act":
         override_act_eval_config(policy)
-        policy_cfg.n_action_steps = 5 # policy.config.n_action_steps
-        # policy_cfg.temporal_ensemble_coeff = policy.config.temporal_ensemble_coeff
+        policy_cfg.n_action_steps = policy.config.n_action_steps
+        policy_cfg.temporal_ensemble_coeff = policy.config.temporal_ensemble_coeff
     policy.eval()
     preprocessor, postprocessor = make_pre_post_processors(
         policy_cfg=policy_cfg,
@@ -428,7 +479,8 @@ async def main(args) -> None:
     dataset = None
     dataset_save_path = None
     video_encoding_manager = None
-    episode_success_results = []
+    episode_success_count = 0
+    episode_success_total = 0
     robot_is_home = False
 
     print("=" * 60)
@@ -447,7 +499,7 @@ async def main(args) -> None:
             max_relative_target_4=0.03,
             max_relative_target_5=0.01,
             max_relative_target_6=0.03,
-            current_limit_gripper_R=0.01 if args.is_sound_shake else 0.3,
+            current_limit_gripper_R=0.2 if args.is_sound_shake else 0.3,
             current_limit_gripper_L=0.3,
         ),
         debug=False,
@@ -466,16 +518,19 @@ async def main(args) -> None:
         robot.cameras = cameras
 
         print("=" * 60)
-        print("音観測系を初期化中...")
-        sound_source = RealSoundObservationSource(
-            explicit_device_ids=parse_device_ids(args.input_device_ids),
-            observation_height=OBSERVATION_HEIGHT,
-            observation_width=OBSERVATION_WIDTH,
-            remap_soundmap_channels=args.remap_soundmap_channels,
-        )
-        sound_source.start()
-        if not sound_source.wait_until_ready(timeout_s=5.0):
-            print("[soundreal] Audio buffers are still warming up. Initial frames may contain zeros.")
+        if needs_sound_observations:
+            print("音観測系を初期化中...")
+            sound_source = RealSoundObservationSource(
+                explicit_device_ids=parse_device_ids(args.input_device_ids),
+                observation_height=OBSERVATION_HEIGHT,
+                observation_width=OBSERVATION_WIDTH,
+                remap_soundmap_channels=args.remap_soundmap_channels,
+            )
+            sound_source.start()
+            if not sound_source.wait_until_ready(timeout_s=5.0):
+                print("[soundreal] Audio buffers are still warming up. Initial frames may contain zeros.")
+        else:
+            print("音観測を使わない policy/dataset のため、音観測系の初期化をスキップします")
         if not args.is_sound_shake:
             audio_player = LoopingStereoPlayer(output_device=args.output_device)
 
@@ -494,7 +549,7 @@ async def main(args) -> None:
                 fps=CAMERA_FPS,
                 root=save_path,
                 robot_type="iloha_single_arm",
-                features=build_soundreal_dataset_features(),
+                features=eval_dataset_features,
                 use_videos=True,
                 image_writer_processes=0,
                 image_writer_threads=5,
@@ -583,31 +638,31 @@ async def main(args) -> None:
 
             episode_success = prompt_episode_success(episode_idx + 1, args.num_episodes)
 
-            episode_success_results.append(
-                {
-                    "episode_number": episode_idx + 1,
-                    "episode_index": "" if saved_episode_index is None else saved_episode_index,
-                    "success": int(episode_success),
-                    "frame_count": frame_count,
-                    "sound_index": condition.sound_index,
-                    "sound_label": condition.sound_label,
-                    "speaker": condition.speaker,
-                }
-            )
-
-        if episode_success_results:
-            success_count = sum(int(result["success"]) for result in episode_success_results)
-            success_rate = success_count / len(episode_success_results) * 100.0
+            episode_success_result = {
+                "episode_number": episode_idx + 1,
+                "episode_index": "" if saved_episode_index is None else saved_episode_index,
+                "success": int(episode_success),
+                "frame_count": frame_count,
+                "sound_index": condition.sound_index,
+                "sound_label": condition.sound_label,
+                "speaker": condition.speaker,
+            }
             result_dataset_path = dataset_save_path if dataset_save_path is not None else dataset_path
-            success_csv_path = write_episode_success_csv(
+            success_csv_path = append_episode_success_csv(
                 result_dataset_path,
-                episode_success_results,
+                episode_success_result,
             )
+            print(f"エピソード成功判定をCSVに追記しました: {success_csv_path}")
+
+            episode_success_total += 1
+            episode_success_count += int(episode_success)
+
+        if episode_success_total:
+            success_rate = episode_success_count / episode_success_total * 100.0
             print("=" * 60)
-            print(f"エピソード成功判定CSVを保存しました: {success_csv_path}")
             print(
                 "成功率: "
-                f"{success_count}/{len(episode_success_results)} ({success_rate:.2f}%)"
+                f"{episode_success_count}/{episode_success_total} ({success_rate:.2f}%)"
             )
 
     finally:

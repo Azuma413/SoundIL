@@ -94,6 +94,33 @@ actionとstateを元に戻す．
 uv run shift_action_state.py -5 soundRealAll-edited -o soundRealAll-edited-as
 ```
 ## 実機評価
+- All
 ```bash
-uv run iloha_eval.py --policy_path outputs/train/act_soundRealAll-m4-f10-s2-p0_seed1/checkpoints/200000/pretrained_model --dataset_path datasets/soundRealAll-m4-f10-s2-p0 --output_root datasets/eval --episode_time_s 15 --num_episodes 1 --save_data --sound_index 0 --speaker right
+uv run iloha_eval.py --policy_path outputs/train/act_soundRealAll-m4-f10-s2-p0_seed0/checkpoints/200000/pretrained_model --dataset_path datasets/soundRealAll-m4-f10-s2-p0 --output_root datasets/eval --episode_time_s 15 --num_episodes 25 --save_data --sound_index 0 --speaker right
 ```
+
+- Shake
+```bash
+uv run iloha_eval.py --policy_path outputs/train/act_soundRealShake-m4-f10-s2-p0_seed0/checkpoints/200000/pretrained_model --dataset_path datasets/soundRealShake-m4-f10-s2-p0 --output_root datasets/eval --episode_time_s 20 --num_episodes 25 --save_data --is-sound-shake
+```
+TEなし, n_action_steps:30
+ブザー奥、ぴよぴよ手前
+left奥、right手前
+
+- | r0 | r1 | l0 | l1 | sum
+---|---|---|---|---| ---
+s2-0|19 |17 |17 |19 |72
+s2-1| - | - | - | - |
+s2-2| - | - | - | - |
+s0-0| 2 | 0 | 3 | 0 |5
+s0-1| - | - | - | - |
+s0-2| - | - | - | - |
+
+- | 手前 | 奥 | sum
+---|---|---|---
+s2-0| , |15, |
+s2-1| - | - |
+s2-2| - | - |
+s0-0|4,8|0,0|12
+s0-1| - | - |
+s0-2| - | - |
