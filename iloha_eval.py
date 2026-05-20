@@ -588,9 +588,13 @@ async def main(args) -> None:
                     "[soundreal] Playback started: "
                     f"speaker={condition.speaker}, sound={condition.sound_label}, file={condition.sound_path}"
                 )
+                if sound_source is not None:
+                    sound_source.reset_nmf_state()
                 await asyncio.sleep(args.audio_preroll_s)
             else:
                 print("[soundreal] Playback disabled by --is-sound-shake.")
+                if sound_source is not None:
+                    sound_source.reset_nmf_state()
 
             robot_is_home = False
             frame_count = await evaluation_loop(
