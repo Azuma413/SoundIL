@@ -309,6 +309,132 @@
 		\label{fig:fig2}
 	\end{figure}
 
+\subsection{シミュレーション実験結果}
+	全タスク・全Policy・全条件の成功率をTable~\ref{tab:results}に示す．また，学習ステップ数に対する成功率の推移をFig.~\ref{fig:fig3}に示す．
+
+	\begin{figure}[t]
+		\centering
+		\includegraphics[keepaspectratio, width=14cm]{fig/fig3.png}
+		\caption{学習ステップ数に対するタスク成功率の変化．4タスク（SoundPosition，SoundTone，SoundAll，SoundShake）における4 Policy（ACT，Diffusion Policy，VQ-BeT，$\pi_0$）のOurs3条件での学習推移を示す．}
+		\label{fig:fig3}
+	\end{figure}
+
+	\begin{table*}[t]
+		\centering
+		\scriptsize
+		\setlength{\tabcolsep}{4pt}
+		\caption{全タスクにおけるタスク成功率（\%）の比較（Mean $\pm$ STD）．各Policy内で最良の値を太字で示す．}
+		\label{tab:results}
+		\begin{tabular}{llcccc}
+			\hline
+			モデル & 条件 & SoundPosition & SoundTone & SoundAll & SoundShake \\
+			\hline
+			ACT & Baseline & 20.3 $\pm$ 7.2 & 39.3 $\pm$ 4.0 & 11.0 $\pm$ 3.5 & 35.0 $\pm$ 5.3 \\
+			& Ours1 & \textbf{74.7 $\pm$ 4.7} & 44.3 $\pm$ 2.3 & 45.0 $\pm$ 3.6 & 75.3 $\pm$ 5.0 \\
+			& Ours2 & 15.3 $\pm$ 4.0 & 74.3 $\pm$ 7.0 & 25.7 $\pm$ 3.1 & 72.3 $\pm$ 8.4 \\
+			& Ours3 & 73.0 $\pm$ 5.6 & \textbf{76.7 $\pm$ 1.2} & \textbf{78.7 $\pm$ 2.1} & \textbf{77.3 $\pm$ 5.7} \\
+			\hline
+			Diffusion Policy & Baseline & 13.3 $\pm$ 1.2 & 41.3 $\pm$ 2.5 & 9.3 $\pm$ 6.1 & 26.3 $\pm$ 0.6 \\
+			& Ours1 & \textbf{68.3 $\pm$ 13.7} & 32.7 $\pm$ 3.1 & 46.0 $\pm$ 5.3 & 37.3 $\pm$ 8.1 \\
+			& Ours2 & 15.3 $\pm$ 1.2 & \textbf{80.3 $\pm$ 3.8} & 8.7 $\pm$ 3.8 & 6.3 $\pm$ 2.3 \\
+			& Ours3 & 68.0 $\pm$ 3.6 & 67.7 $\pm$ 7.2 & \textbf{89.7 $\pm$ 2.1} & \textbf{44.0 $\pm$ 3.6} \\
+			\hline
+			VQ-BeT & Baseline & 12.7 $\pm$ 6.8 & 24.0 $\pm$ 6.9 & 7.7 $\pm$ 1.2 & 17.3 $\pm$ 5.8 \\
+			& Ours1 & \textbf{44.7 $\pm$ 5.5} & 32.7 $\pm$ 3.1 & 32.3 $\pm$ 7.5 & 20.0 $\pm$ 20.0 \\
+			& Ours2 & 12.3 $\pm$ 3.8 & \textbf{49.3 $\pm$ 9.8} & 19.0 $\pm$ 1.0 & 25.0 $\pm$ 3.6 \\
+			& Ours3 & 40.3 $\pm$ 4.5 & 32.3 $\pm$ 10.0 & \textbf{55.3 $\pm$ 11.7} & \textbf{32.7 $\pm$ 12.7} \\
+			\hline
+			$\pi_0$ & Baseline & 18.3 $\pm$ 2.3 & 32.3 $\pm$ 2.1 & 7.0 $\pm$ 4.0 & 9.0 $\pm$ 1.0 \\
+			& Ours1 & 17.3 $\pm$ 5.0 & 40.0 $\pm$ 11.4 & 14.3 $\pm$ 2.9 & \textbf{26.7 $\pm$ 3.2} \\
+			& Ours2 & 14.7 $\pm$ 5.7 & \textbf{78.7 $\pm$ 6.0} & 19.7 $\pm$ 3.8 & 9.3 $\pm$ 10.4 \\
+			& Ours3 & \textbf{32.0 $\pm$ 9.9} & 73.3 $\pm$ 8.4 & \textbf{45.7 $\pm$ 8.1} & 18.7 $\pm$ 4.2 \\
+			\hline
+		\end{tabular}
+	\end{table*}
+
+\subsubsection{SoundPositionタスク：音源定位}
+	SoundPositionタスクでは，音源の空間位置情報のみが判断に必要であり，音色情報は不要である．この特性はTable~\ref{tab:results}の結果に明確に反映されている．ACTおよびDiffusion Policyにおいて，Ours1はそれぞれ74.7\%・68.3\%と高い成功率を達成し，Ours2はBaselineとほぼ同水準にとどまった．Ours3も73.0\%・68.0\%を達成し，音空間マップが音源定位に有効な入力表現であることを示した．
+
+	Baselineの成功率はいずれのPolicyでも20\%以下であった．本タスクの対象選択は二択であるが，Table~\ref{tab:results}の値は選択正答率ではなく，把持・搬送・箱投入までを含む全体成功率であるため，単純なランダム選択の期待値50\%とは直接比較できない．それでも，視覚的に対象を区別できない条件では全体成功率が大きく低下しており，誤選択に加えて，曖昧な入力に対して平均化された行動が生成され，把持段階で失敗したことを示している．
+
+	$\pi_0$については，Ours3でも成功率が32.0\%にとどまり，他のPolicyと傾向が異なる．この結果は，大規模VLAモデルに音響特徴を統合する際には，特徴の挿入位置や学習設定が性能を大きく左右することを示している．
+
+	なお，SoundPosition タスクでは Ours2（スペクトログラムのみ）が Baseline と同水準もしくはそれを下回るPolicyが見られた．本タスクの判断には音源の空間情報のみが必要であり，周波数情報は判断に寄与しない．デモンストレーション数が限られた条件下では，判断に不要なモダリティを入力に加えることが，Policyがそれを無視する表現を学習する妨げとなり，結果として性能を低下させる可能性がある．同様の傾向は SoundShake タスクの Diffusion Policy においても観察された（Ours2: 6.3\%，Baseline: 26.3\%）．これは，入力モダリティの選択がタスクの性質に応じて慎重に行われるべきことを示唆している．
+
+\subsubsection{SoundToneタスク：音色識別}
+	SoundTone タスクでは，音源位置は固定されており，音色の識別が主要な判断手がかりとなる．このタスクは視覚情報とスペクトログラムのみで原理的に解けるよう設計されている．π0 では Ours2（スペクトログラムのみ）が 78.7\% という最高水準の成功率を達成しており，スペクトログラム入力単独でも音色識別が学習可能であることを示している．一方，ACT・Diffusion Policy では Ours2 がそれぞれ 74.3\%，80.3\% と Baseline を大きく上回ったが，VQ-BeT では Ours2 が 49.3\% と他のPolicyに比べて低水準にとどまった．VQ-BeT は行動を離散コードに量子化する設計であり，音色に応じた連続的な搬送先調整との相性が悪い可能性がある．
+
+	特に興味深いのは$\pi_0$の結果である．$\pi_0$はOurs2（スペクトログラムのみ）で78.7\%という最高水準の成功率を達成した．$\pi_0$はPaliGemmaをバックボーンとする事前学習済みの大規模モデルであり，スペクトログラムのような二次元マップ形式の入力表現と親和性が高い可能性がある．一方，音空間マップを追加したOurs3では成功率が73.3\%とやや低下しており，$\pi_0$においては固定された音源位置に関する空間情報が一部の事例でノイズとして作用した可能性が示唆される．
+
+	Diffusion PolicyのOurs3は67.7\%と高い成功率を達成した一方，VQ-BeTは全条件で30\%台にとどまった．VQ-BeTは行動の離散化表現を用いるため，音色に応じた細かい搬送先の切り替えに必要な連続的な行動調整の表現が困難であった可能性がある．
+
+\subsubsection{SoundAllタスク：音の位置と種類の統合}
+	SoundAll タスクは，音源位置と音色の両方が必要な，本研究で最も総合的なタスクである．Baseline の成功率は全Policyで 7〜11\% と低く，視覚情報のみでは操作対象を特定できないことが確認される．Ours1（音空間マップのみ）は ACT で 45.0\%，Diffusion Policy で 46.0\% まで向上するが，音色に応じた箱選択には不十分である．Ours2（スペクトログラムのみ）も対象物体の選択が不安定となり，性能は限定的である．Ours3 は，ACT で 78.7\%，Diffusion Policy で 89.7\%，VQ-BeT で 55.3\%，π0 で 45.7\% を達成し，全Policyで他の条件を上回った．この結果は，位置と音色の両方が判断に必要となるタスクでは，対応する両方の入力表現をPolicyに与えることが必要であることを示している．
+
+	Diffusion PolicyのOurs3が89.7\%と全実験中最高の成功率を達成したことは注目すべき結果である．Diffusion Policyが生成するマルチモーダルな行動分布は，音源の位置と音色を組み合わせた複合的な判断に伴う複数の行動候補を扱ううえで有効に働いた．
+
+\subsubsection{SoundShakeタスク：探索的行動と音響フィードバック}
+	SoundShakeタスクは，ロボット自身が物体を把持して振るという探索的行動によって音響情報を引き出し，その結果に基づいて行動を切り替える能動的知覚タスクである．把持した物体が音を発せばそのまま箱へ搬送し，音が鳴らなければ置き直して別の物体を選択するという時間的な条件分岐が求められる．ACTのOurs1とOurs2はそれぞれ75.3\%・72.3\%を達成し，Ours3は77.3\%と同等以上の成功率を示した．本タスクでは，振動後に音が観測された物体を選択するイベント的な手がかりが強く，ACTではいずれの音響表現もBaselineを大きく上回った．Baselineも35.0\%を示しているのは，視覚的・動力学的な把持動作自体はデモンストレーションから学習でき，音情報がなくても部分的に再現されるためである．
+
+	他のPolicyでは，Diffusion PolicyのOurs3が44.0\%を達成した一方，VQ-BeT・$\pi_0$では成功率が低水準にとどまった．SoundShakeタスクが要求する時間的に複雑な条件分岐の処理において，音響特徴の統合方法と時系列表現の設計が性能を大きく左右したと考えられる．
+
+\subsubsection{横断的分析}
+\label{sec:cross_analysis}
+	4タスクにわたる結果（Table~\ref{tab:results}）から，以下の3つの横断的知見を抽出する．
+
+	\textbf{音響モダリティとタスク要求の対応．}
+	各タスクにおいて，タスクが要求する音響的能力に対応したモダリティを入力に含む条件が最良の性能を示す傾向が一貫して観察された．
+	SoundPositionでは音空間マップを含む Ours1/Ours3 が，SoundTone ではスペクトログラムを含む Ours2/Ours3 が，SoundAll では両者を含む Ours3 がそれぞれ最良であった．
+	この結果は，音響表現の設計がタスク要求と整合する場合にPolicyの判断能力が向上することを示している．
+
+	\textbf{不要モダリティの追加による性能低下．}
+	タスクに不要なモダリティを追加すると，性能が Baseline 以下に低下する場合がある．
+	SoundPosition における Ours2（ACT: 15.3\%，Baseline: 20.3\%）や，SoundShake における Diffusion Policy の Ours2（6.3\%，Baseline: 26.3\%）がその典型例である．
+	限られたデモンストレーションデータのもとでは，判断に不要な入力次元を無視する表現を学習することが困難となり，	結果としてPolicyの最適化を阻害することが示唆される．
+
+	\textbf{Policy間の音響情報活用効率の差異．}
+	音響情報の追加による改善幅はPolicyによって大きく異なる．
+	ACT と Diffusion Policy は多くのタスクで大きな改善を示した一方，VQ-BeT と $\pi_0$ では改善が限定的なタスクが複数存在した．
+	VQ-BeT は行動の離散化に伴う表現力の制約が，$\pi_0$ は大規模事前学習モデルへの音響特徴の統合方法が，それぞれ制約要因となった可能性がある．
+	この知見は，音響モダリティの統合が万能ではなく，Policyのアーキテクチャに応じた設計が必要であることを示している．
+
+\subsubsection{潜在空間の可視化}
+\label{sec:tsne}
+	各Policyの内部表現が音響情報をどのように符号化しているかを定性的に分析するため，行動生成直前に得られる潜在特徴量を t-SNE~\citep{vandermaaten2008tsne}により2次元へ射影して可視化した．各モデルからの潜在状態の取り出し方および全Policyの結果はAppendix~\ref{sec:appendixB}に示す．ここでは，本研究の主張に最も関連する2つの観察をFig.~\ref{fig:fig4}にまとめる．
+
+	\begin{figure}[t]
+		\centering
+		\includegraphics[keepaspectratio, width=14cm]{fig/fig4.png}
+		\caption{潜在空間のt-SNE可視化．(a) Diffusion PolicyのSoundAllタスクにおける，Baseline，Ours1，Ours2，Ours3の比較．音源位置（Sound Coordinate）および音種（Sound Type）でラベル付けした．Ours3で最も明瞭な構造化が観察される．(b) SoundShakeタスクにおけるACTとDiffusion Policyの音源位置に関する潜在表現の比較．ACTは音源位置に応じた分離が明瞭である一方，Diffusion Policyでは分離が弱い．}
+		\label{fig:fig4}
+	\end{figure}
+
+	\textbf{(a) Ours3における潜在空間の構造化（Diffusion Policy，SoundAll）．}
+	Fig.~\ref{fig:fig4}(a)はDiffusion PolicyのSoundAllタスクにおける各条件の潜在空間を示す．Baselineではいずれのラベル（音源位置・音種）でも一貫した分離が見られない．Ours1では音空間マップが入力されるため，音源位置に対応した分離が観察される一方，音種の分離は不明瞭である．逆にOurs2ではスペクトログラムにより音種の分離が現れるが，音源位置の分離は限定的である．Ours3では音空間マップとスペクトログラムを併用した結果，音源位置と音種の双方に対応した構造化が確認できる．この観察は，SoundAllタスクにおいてOurs3が89.7\%という最高成功率を達成したという定量的結果（Table~\ref{tab:results}）と整合する．
+
+	\textbf{(b) Policy間の差：SoundShakeにおける空間情報の保持．}
+	Fig.~\ref{fig:fig4}(b)はSoundShakeタスクにおけるACTとDiffusion Policyの潜在空間を音源位置でラベル付けして示したものである．ACTでは音源位置に応じた明瞭な分離が見られる一方，Diffusion Policyでは分離が著しく弱い．SoundShakeタスクではACTのOurs3が77.3\%，Diffusion PolicyのOurs3が44.0\%とPolicy間で大きな性能差が生じているが，この差は，ACTが音源の空間情報を潜在表現として保持できているのに対し，Diffusion Policyでは音響的手がかりが潜在空間に十分に符号化されていないことに対応していると解釈できる．
+
+	これらの観察は，Table~\ref{tab:results}の定量的結果と整合しており，各音響モダリティが担う役割の違い，およびPolicyごとの音響情報活用能力の違いを定性的に支持している．
+
+\subsection{実機実験}
+\subsubsection{実験設定}
+	シミュレーションで得られた知見が実環境においても再現されるかを検証するため，ALOHA~\citep{act}タイプの双腕型オープンソースロボットILOHAと4台の円形マイクロフォンアレイTAMAGO-03を用いた実機実験環境を構築した．ILOHAの行動次元は14である．マイクロフォンアレイは，俯瞰視点で短辺60 cm，長辺120 cmの長方形の各頂点に配置した．
+	実機実験は，シミュレーションにおいてOurs3とBaselineの差が最も顕著であったSoundAllタスクと，能動的探索を要するSoundShakeタスクの2種類について実施した．評価Policyには，シミュレーションにおいて両タスクで安定した性能を示したACTを採用し，Ours3とBaselineを比較した．各条件についてデモンストレーションデータは100エピソード収集し，学習はて学習に用いた100回の試行を実施した．
+
+\subsubsection{実験結果}
+	各条件のタスク成功率をTable~\ref{tab:real}に示す．SoundAll タスクにおいて，ACT の Ours3 は 72/100 の成功率を示した一方，Baseline は 5/100 にとどまった．SoundShake タスクにおいても，Ours3 は 50/100 を達成し，Baseline の 12/100 を上回った．これらの結果は，視覚情報のみでは解けないタスクに対して，提案手法がシミュレーションで観察された性能向上を実環境でも再現することを示している．
+	実環境では，反射音，背景雑音，ロボット駆動系から生じる機械的振動など，シミュレーションでは完全に再現できない音響的外乱が存在する．それにもかかわらず，提案手法が実機上で機能した要因として，音空間マップが単一の推定座標ではなく方向尤度の分布として空間情報を保持していること，および Spotforming/NMF による前処理が複数アレイ間で共通して観測される成分のみを残すことで雑音と局所的なサイドローブを抑制していることが挙げられる．
+
+
+	\begin{figure}[t]
+		\centering
+		\includegraphics[keepaspectratio, width=14cm]{fig/fig5.png}
+		\caption{実機実験の実行例．上段：SoundAllタスクにおける把持・搬送の連続フレーム．下段：音空間マップの推移．}
+		\label{fig:fig5}
+	\end{figure}
+
+
 \appendix
 %===============================================================================
 \section{パラメータ設定}
