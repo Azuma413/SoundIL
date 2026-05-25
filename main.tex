@@ -1,0 +1,298 @@
+\section{Spatial-Spectral Audio Action Model (S2A2)}
+	本節では，提案するマルチモーダル模倣学習フレームワークS2A2の全体構成を述べる．
+	% ↑ここが下の説明になっていない
+	まず~\ref{sec:problem}で問題設定を定義し，~\ref{sec:tasks}で本研究が対象とする音環境マニピュレーションタスク群を導入する．
+	続いて~\ref{sec:overview}でシステムの全体像を示した後，~\ref{sec:doa}-~\ref{sec:spec}で音響表現の生成手法を，~\ref{sec:network}でニューラルネットワークのアーキテクチャをそれぞれ詳述する．
+	提案システムの概要をFig.~\ref{fig:fig1}に示す．
+
+\subsection{問題設定}
+	本研究では，ロボットマニピュレータが音を手がかりとして操作対象を識別し，把持して所定の位置へ搬送するタスクを扱う．各時刻 $t$ における観測 $o_t$ を入力とし，エキスパート行動 $a_t$ を再現するPolicy$\pi_\theta$を模倣学習によって獲得することを目的とする．データセットを $\mathcal{D}=\{(o_t,a_t)\}$ とすると，行動回帰型のPolicyでは基本的に次の経験損失を最小化する：
+	$$
+	\min_{\theta}\ \mathbb{E}_{(o_t,a_t)\sim\mathcal{D}}
+	\left[\mathcal{L}_{\mathrm{BC}}\left(\pi_\theta(o_t),a_t\right)\right],
+	$$
+	ここで $\mathcal{L}_{\mathrm{BC}}$ は各Policyの学習目的に対応する．
+	% ここは全てのpolicyの目的関数を書く．
+
+	% 音響表現とかは「後述する」と入れる．proprioは専門用語なので説明を入れる．
+	観測 $o_t$ は，正面・側面 2 台の RGB 画像，音響表現，および固有受容感覚から構成される．
+	
+	シミュレーションでは固有受容感覚は手先位置・姿勢とグリッパ開度からなる9次元ベクトルであり，行動 $a_t$ はFranka Pandaの7関節位置目標と2つのフィンガ位置目標からなる9次元の位置制御指令である．
+
+	特に本研究が対象とする難しさは，視覚情報だけでは操作対象を一意に特定できない状況である．すなわち，外観上同一の複数の物体が存在し，音によってのみ正しい操作対象を識別できる音環境マニピュレーション問題を中心的な課題として扱う．
+
+
+\subsection{Acoustic-Scene Manipulation Tasks}
+\label{sec:tasks}
+	本研究では，音響情報が操作判断に果たす役割を体系的に検証するため，
+	必要な音響的手がかりの性質が異なる4種類の操作タスクを設計し，
+	これらを総称して\textbf{Acoustic-Scene Manipulation Tasks}と呼ぶ．
+	各タスクの概要を Table~\ref{tab:tasks} に示す．
+
+	\textbf{SoundPosition}（音源定位タスク）は，
+
+	マニピュレータの操作範囲内に視覚的に同一の2つの物体と，1つの箱が配置してある．
+	視覚的に同一の2つの物体のうち，音を発している物体を把持して箱に入れるタスクである．
+
+	2つの物体の音色は同一であり，
+	判断には音源の空間的位置のみが必要となる．
+	このタスクは，音空間マップが操作判断に寄与するかを検証するために設計した．
+	% 指示語を使わない．
+
+	\textbf{SoundTone}（音色識別タスク）は，
+	1つの物体が発する音の種類を識別し，音色に応じて2種類の箱のいずれかへ搬送するタスクである．
+	音源の位置は固定されているため，判断に空間情報は不要であり，
+	スペクトログラムが音色の弁別に有効かを検証する．
+
+	\textbf{SoundAll}（統合判断タスク）は，
+	視覚的に同一の2つの物体のうち，特定の音色を発する方を把持し，
+	音色に対応する箱へ搬送するタスクである．
+	対象物体の選択に空間情報が，搬送先の決定に周波数情報がそれぞれ必要であり，
+	音空間マップとスペクトログラムの統合的な活用を検証する，
+	本研究で最も総合的なタスクである．
+
+	\textbf{SoundShake}（能動的探索タスク）は，
+	視覚的に同一の2つの物体を順に把持して振り，
+	音が鳴った方の物体を箱に入れるタスクである．
+	ロボットが自ら探索行動を行って初めて音響情報を得られる点，
+	および把持後の音響フィードバックに基づく時間的な条件分岐
+	（音が鳴ればそのまま搬送し，鳴らなければ置き直して別の物体を把持する）
+	が求められる点で，他の3タスクと質的に異なる．
+
+	\begin{table*}[t]
+		\centering
+		\scriptsize
+		\setlength{\tabcolsep}{3pt}
+		\caption{Acoustic-Scene Manipulation Tasks の概要と各タスクが要求する音響的能力．}
+		\label{tab:tasks}
+		\begin{tabular}{p{0.10\textwidth} p{0.54\textwidth} >{\centering\arraybackslash}p{0.09\textwidth} >{\centering\arraybackslash}p{0.09\textwidth} >{\centering\arraybackslash}p{0.09\textwidth}}
+			\hline
+			タスク & 説明 & 音の位置情報 & 音の種類識別 & 探索的行動 \\
+			\hline
+			SoundPosition & 視覚的に同一の2物体のうち，音が鳴っている方を把持して箱に入れる & $\checkmark$ & -- & -- \\
+			SoundTone & 1つの物体が発する音の種類を識別し，2種類の箱へ分別する & -- & $\checkmark$ & -- \\
+			SoundAll & 視覚的に同一の2物体のうち，特定の音色を発する方を把持して対応する箱に入れる & $\checkmark$ & $\checkmark$ & -- \\
+			SoundShake & 視覚的に同一の2物体を順に把持して振り，音が鳴る方を箱に入れる & $\checkmark$ & -- & $\checkmark$ \\
+			\hline
+		\end{tabular}
+	\end{table*}
+
+\subsection{システム概要}
+	提案システムは，音響情報取得・表現モジュールとマルチモーダル模倣学習モデルから構成される（Fig.~\ref{fig:fig1}）．作業空間には $n$ 個のマイクロフォンアレイと2台のRGBカメラを配置する．各アレイは半径3.5cmの円周上に均等配置された8素子からなる．音響情報取得モジュールは，多チャンネル音響信号から空間的な音源尤度を表す音空間マップと，音源の周波数特性を表すスペクトログラムを生成し，これらを視覚特徴とともにPolicyへ入力する．RGB画像・音空間マップ・スペクトログラムはすべて $224 \times 224$ の解像度で統一する．
+
+\subsection{音空間マップの生成}
+\subsubsection{DOA推定}
+	% エルミート行列は定義した方が良い
+	各マイクロフォンアレイの多チャンネル信号に対し，MUSIC（MUltiple SIgnal Classification）法~\citep{schmidt1986music}を適用する．入力音声信号はサンプリング周波数16kHzで取得し，FFT長512，50\%オーバーラップの短時間フーリエ変換（STFT）で周波数領域へ変換する．$c$ 番目のアレイで観測された $M$ チャンネル信号のSTFTを $\mathbf{x}_{c,f,\tau}\in\mathbb{C}^{M}$ とすると，周波数 $f$ における空間共分散行列は
+	$$
+	\mathbf{R}_{c,f}=\frac{1}{T}\sum_{\tau=1}^{T}
+	\mathbf{x}_{c,f,\tau}\mathbf{x}_{c,f,\tau}^{\mathrm{H}}
+	$$
+	で与えられる．MUSIC法は，$\mathbf{R}_{c,f}$ の固有値分解から雑音部分空間 $\mathbf{E}_{n,c,f}$ を求め，方向 $\theta$ のステアリングベクトル $\mathbf{a}_{c,f}(\theta)$ との直交性に基づいて空間スペクトル
+	% Fの定義, eplisonの定義
+	$$
+	P_c(\theta)=\frac{1}{|\mathcal{F}|}\sum_{f\in\mathcal{F}}
+	\frac{1}{\mathbf{a}_{c,f}(\theta)^{\mathrm{H}}
+	\mathbf{E}_{n,c,f}\mathbf{E}_{n,c,f}^{\mathrm{H}}
+	\mathbf{a}_{c,f}(\theta)+\epsilon}
+	$$
+	を計算する．本実験では音源数を $K_{\rm src}=3$ として固有値分解を行い，方位ごとの空間スペクトルを対数化および正規化した値をDOAスコアとして用いる．
+
+\subsubsection{二次元マップへの投影}
+	推定されたDOAスコアを作業空間に対応した $224\times224$ の二次元平面へ投影し，$n$ チャンネルの音空間マップを生成する．画像座標 $u=(i,j)$ に対応する作業空間上の点を $p(u)$，アレイ中心を $m_c$ とすると，各チャンネルの値は
+	$$
+	S_c(u)=\frac{\bar{P}_c(\theta(p(u),m_c))}
+	{\left(\|p(u)-m_c\|_2+d_0\right)^\gamma}
+	$$
+	で計算する．ここで $\bar{P}_c$ は正規化後のDOAスコア，$d_0=0.1\,\mathrm{m}$ と $\gamma=0.5$ は距離減衰の安定化パラメータである．全アレイの $S_c$ を重ねた多チャンネルマップ $S\in\mathbb{R}^{224\times224\times n}$ を空間音響表現として用いる．この表現は，単一の推定座標に情報を圧縮せず，各アレイから見た方向尤度を保持するため，視覚特徴との空間的な対応づけを学習しやすい．
+
+\subsection{スペクトログラムの抽出}
+\subsubsection{Spotformingによる音源強調}
+	音空間マップだけでは，音色の違いを捉えることが困難である．そこでSpotforming技術~\citep{spotforming_nmf}に基づき，目的音源方向の強調とNMF~\citep{lee1999nmf}による共通成分抽出を組み合わせ，雑音やサイドローブを抑制したスペクトログラムを生成する．まず全アレイのマップを
+	$$
+	S_{\mathrm{sum}}(u)=\sum_{c=1}^{n} S_c(u)^\alpha
+	$$
+	として統合し，ガウシアンフィルタ（$\sigma=1.0$）を適用した後，局所最大点を音源候補として選択する（本研究では最大1候補を使用）．各アレイでは，対応する方位 $\hat{\theta}_c$ に対してDelay-and-Sumビームフォーミングを行う：
+	$$
+	y_c(t)=\frac{1}{M}\sum_{m=1}^{M}
+	x_{c,m}(t-\tau_{c,m}(\hat{\theta}_c)).
+	$$
+	次に各アレイのビームフォーミング出力 $y_c$ の振幅スペクトログラムを時間方向に結合した非負値行列 $\mathbf{V}$ を，50成分のNMFにより
+	% Vの導出過程
+	% H^cの定義 or 導出
+	$$
+	\mathbf{V}\approx \mathbf{W}\mathbf{H},\quad
+	\mathbf{W}\ge0,\ \mathbf{H}\ge0
+	$$
+	と分解し，各アレイに分割した活性 $\mathbf{H}^{(c)}$ の最小値
+	$$
+	\mathbf{Z}=\min_{c}\mathbf{H}^{(c)}
+	$$
+	から全アレイに共通して現れる成分を推定する．$\mathbf{Z}$ から閾値 $\delta=1.6\times10^{-3}$ によるバイナリマスク $\mathbf{M}$ を作成し，$\mathbf{W}(\mathbf{H}^{(c)}\odot\mathbf{M})$ により各アレイの振幅スペクトログラムを再構成する．
+	% ここのバイナリマスクの説明．
+
+	位相には同じアレイのビームフォーミング出力 $y_c$ のSTFT位相を用い，逆STFTで得た波形をアレイ間で平均する．この処理は，目的音源が全アレイで観測される一方，サイドローブや局所雑音は一部のアレイでのみ強く現れるという仮定に基づく．
+
+\subsubsection{対数パワースペクトログラムの生成}
+	NMFで抽出した共通成分を再構成・統合し，雑音を抑制した単一チャンネルの対数パワースペクトログラムを生成する．再構成波形 $\hat{y}(t)$ のSTFTを $\hat{Y}_{f,\tau}$ とすると，スペクトログラム画像は
+	$$
+	G(f,\tau)=10\log_{10}\left(|\hat{Y}_{f,\tau}|^2+\epsilon\right)
+	$$
+	として計算する．表示周波数帯域は0〜4000Hzとし，パーセンタイル正規化を適用した後，$224\times224$ にリサイズしてPolicyへ入力する．得られた $G$ を周波数音響表現として用いることで，音空間マップでは失われる音色や周期性の情報をPolicyへ与える．
+
+\subsection{ネットワークアーキテクチャ}
+	本研究では行動生成Policyとして\textbf{ACT}~\citep{act}，\textbf{Diffusion Policy}~\citep{diffusionpolicy}，\textbf{VQ-BeT}~\citep{vqbet}，\textbf{$\pi_0$}~\citep{pi0} の4種を評価する．
+	それぞれのPolicyについて，カメラ画像，音空間マップ，スペクトログラムの各モダリティを専用エンコーダで処理する（Fig.~\ref{fig:fig1}）．
+
+	\begin{description}
+		\item[\textbf{視覚エンコーダ}] 正面・側面2枚のRGB画像を視覚エンコーダへ入力し，視覚特徴量を抽出する．これにより物体位置，箱位置，ロボット姿勢の情報を抽出することを期待する．
+		\item[\textbf{音空間マップエンコーダ}] $n$ チャンネルの音空間マップを畳み込みエンコーダへ入力し，音源の空間的な尤度分布を特徴化する．
+		\item[\textbf{スペクトログラムエンコーダ}] 対数パワースペクトログラムを別の畳み込みエンコーダへ入力し，音色や周波数パターンに対応する特徴量を抽出する．
+	\end{description}
+
+	% appendixへの参照を付ける
+	% policyごとの実装差分なども書く
+	% 未定義のワード
+	/ref{sec:appendixA}
+	これらの視覚特徴，空間音響特徴，周波数音響特徴，固有受容感覚を統合し，後段の行動生成Policyへ入力する．ACTでは，RGB画像，音空間マップ，スペクトログラムをそれぞれResNet-18~\citep{he2016resnet}の畳み込みバックボーンで特徴マップ化し，音空間マップは複数アレイ分のチャンネルを結合した入力として，スペクトログラムは1チャンネル入力として扱う．得られた特徴トークンと状態トークンをTransformer encoderへ入力し，decoder~\citep{vaswani2017attention}から行動チャンクを予測する．Diffusion Policyでは，同様の画像特徴を観測履歴方向に集約し，状態特徴と結合したグローバル条件としてU-Net型の条件付き拡散モデル~\citep{ho2020ddpm, diffusionpolicy}へ入力する．VQ-BeTでは，各画像モダリティを専用バックボーンとSpatial Softmaxで1次元特徴へ変換し，状態特徴とともに潜在行動トークンの予測に用いる．$\pi_0$では，正面・側面RGB画像はPaliGemma~ \citep{beyer2024paligemma}側の画像トークンとして処理し，音空間マップとスペクトログラムは別の畳み込みバックボーンで特徴マップ化した後，$1\times1$ 畳み込みでPaliGemmaの隠れ次元へ射影し，2次元位置埋め込みを加えて追加トークンとしてprefix系列に連結する．言語命令は各タスクを表す固定文を用い，音響トークン，画像トークン，言語トークン，状態トークンを条件としてflow matching~\citep{lipman2023flow}により行動列を生成する．
+
+%===============================================================================
+\section{Experiments}
+\label{sec:result}
+	本節では，提案する音響表現が模倣学習Policyの性能に与える影響を，以下の3点において検証する．
+	(1)~音空間マップとスペクトログラムが有効なタスク
+	(2)~タスクに不要な音響モダリティを入力に加えた場合の性能変化
+	(3)~各Policyにおける音響情報の活用効率の差異
+	まず~\ref{sec:sim_setup}でシミュレーション環境と評価手順を述べ，~\ref{sec:sim_results}で定量・定性的な実験結果を報告し，~\ref{sec:real}で実機実験による検証を行う．
+
+\subsection{実験設定}
+	~\ref{sec:tasks}で定義した4タスクについて，	各音響表現の寄与を切り分けて評価するため，
+	全Policyに対して以下の4条件を設定し，評価を行った．
+
+	\begin{description}
+		\item[\textbf{Baseline}] 視覚情報のみ（音響情報なし）．
+		\item[\textbf{Ours_{V,Spa}}] 視覚情報 + 音空間マップ．
+		\item[\textbf{Ours_{V,Spec}}] 視覚情報 + スペクトログラム．
+		\item[\textbf{Ours_{V,Spa,Spec}}] 視覚情報 + 音空間マップ + スペクトログラム（提案手法）．
+	\end{description}
+
+	物理シミュレータGenesis~\citep{Genesis}と音響シミュレータPyroomacoustics~\citep{pyroomacoustics}を統合したシミュレーション環境を構築した（Fig.~\ref{fig:fig2}）．ロボットアームにはFranka Emika Pandaを使用し，行動次元は9とした．視覚情報は正面・側面カメラから取得した $224 \times 224$ のRGB画像2枚とした．音響シミュレーションでは $10\,\mathrm{m}\times10\,\mathrm{m}\times3\,\mathrm{m}$ の室内環境を用い，最大3次反射まで考慮した．マイクロフォンアレイ数は予備実験（Appendix~\ref{sec:appendixA1}）に基づき，標準設定で $n=4$ とし，作業空間中心から半径300mmの円周上に配置した．視覚情報は30FPSで更新され，音情報は予備実験（Appendix~\ref{sec:appendixA2}）に基づき，3フレームごと（10FPS）で更新した．
+
+	上記のシミュレーション環境において，デモンストレーションデータを収集した．
+	デモンストレーションはイベントベースでエンドエフェクタの目標Poseを指定し，IKベースのエキスパートにより軌道を生成することにより収集した．
+	
+	SoundPosition，SoundToneタスクについては100エピソード，SoundAll，SoundShakeタスクについては200エピソードのデモンストレーションを収集した．
+	学習設定として，SoundPositionおよびSoundToneタスクでは10万ステップ，SoundAllおよびSoundShakeタスクでは 20 万ステップの学習を行った．
+	バッチサイズは$\pi_0$で4，ACTで8，Diffusion PolicyとVQ-BeTで32とした．
+	各タスクは3つの異なる乱数シードで学習し，評価指標は100回の試行において700ステップ以内にタスクを完遂した割合とした．
+	なお，各タスクの成功率は把持・搬送・投入を含む全体完遂率であり，対象物体の選択正答率とは区別される．
+	学習曲線をFig.~\ref{fig:fig3}に示す．
+
+	\begin{figure}[t]
+		\centering
+		\includegraphics[keepaspectratio, width=14cm]{fig/fig2.png}
+		\caption{Simulation settings. (A) 物理シミュレータGenesisと音響シミュレータPyroomacousticsを統合したシステム構成．Franka Emika Pandaの周囲に4つのマイクロフォンアレイを配置．(B) 4種類の評価タスク（SoundPosition，SoundTone，SoundAll，SoundShake）．}
+		\label{fig:fig2}
+	\end{figure}
+
+
+
+
+
+
+  
+\appendix
+%===============================================================================
+\section{パラメータ設定}
+\label{sec:appendixA}
+	各ポリシーの主要なパラメータを Table~\ref{tab:hyperparams} に示す．
+	% かんの円周，半径，高さ，色，箱の寸法とかも必要
+	% 結果に対してセンシティブなパラメータは本文に載せる
+
+	\begin{table*}[t]
+		\centering
+		\scriptsize
+		\caption{各ポリシーの学習ハイパーパラメータ．}
+		\label{tab:hyperparams}
+		\begin{tabular}{lcccc}
+			\hline
+			& ACT & Diffusion Policy & VQ-BeT & $\pi_0$ \\
+			\hline
+			オプティマイザ & AdamW & AdamW & AdamW & AdamW \\
+			学習率 & [TODO] & [TODO] & [TODO] & [TODO] \\
+			Weight decay & [TODO] & [TODO] & [TODO] & [TODO] \\
+			学習率スケジューラ & [TODO] & [TODO] & [TODO] & [TODO] \\
+			バッチサイズ & 8 & 32 & 32 & 4 \\
+			行動チャンク長 & [TODO] & [TODO] & [TODO] & [TODO] \\
+			観測履歴長 & [TODO] & [TODO] & [TODO] & [TODO] \\
+			視覚バックボーン & ResNet18 & ResNet18 & ResNet18 & PaliGemma \\
+			DOA エンコーダ & [TODO] & [TODO] & [TODO] & [TODO] \\
+			スペクトログラムエンコーダ & [TODO] & [TODO] & [TODO] & [TODO] \\
+			エンコーダ出力次元 & [TODO] & [TODO] & [TODO] & [TODO] \\
+			\hline
+		\end{tabular}
+	\end{table*}
+
+
+	また，Fig.~\ref{fig:appendixA}に，提案手法における主要なハイパーパラメータの感度分析結果を示す．
+
+	\begin{figure}[t]
+		\centering
+		\includegraphics[keepaspectratio, width=14cm]{fig/figb.png}
+		\caption{ハイパーパラメータの感度分析．(a) マイクロフォンアレイ数の影響．(b) 音情報の更新FPSの影響．(c) 音空間マップの表現方法の比較．}
+		\label{fig:appendixA}
+	\end{figure}
+
+\subsection{マイクロフォンアレイ数の影響}
+\label{sec:appendixA1}
+	SoundPositionタスクに相当する条件において，マイクロフォンアレイ数 $n$ を変化させた際のタスク成功率の変化をFig.~\ref{fig:appendixA}(a)に示す．評価にはACTのOurs3条件を用いた．$n=4$ のとき成功率が最大値を示したため，本論文の実験ではこれを標準設定とした．アレイ数が少ない場合はDOA推定精度が低下し，多すぎる場合は冗長な情報によるモデルの混乱が生じる傾向が見られた．
+
+\subsection{音情報の更新FPSの影響}
+\label{sec:appendixA2}
+	音空間マップとスペクトログラムの更新頻度を1〜30FPSの範囲で変化させた際の成功率変化をFig.~\ref{fig:appendixA}(b)に示す．評価にはACTのOurs3条件とSoundPositionタスクを用いた．5FPSを超えると性能が急激に向上し，10FPS以降で飽和する傾向が確認された．この結果から，動的な把持動作に対して十分な頻度での音響情報更新が重要であることが示された．
+
+\subsection{音響表現の比較}
+\label{sec:appendixA3}
+	音空間マップの表現方法として，直接投影，特徴量化マップ，時間平滑音空間マップの3種類を比較した結果をFig.~\ref{fig:appendixA}(c)に示す．評価にはACTとSoundPositionタスクを用いた．直接投影した音空間マップが他の表現を一貫して上回る成功率を達成しており，事前処理を加えることなく生のDOA情報を使用することが有効であることが示された．
+
+%===============================================================================
+\section{潜在空間の可視化（追加結果）}
+\label{sec:appendixB}
+	% 最終層と中間層の結果をすべてのせる．
+
+	本節では，~\ref{sec:tsne}で示した本文中のFig.~\ref{fig:fig4}に掲載しきれなかったPolicy・タスクの組み合わせについての追加 t-SNE プロットを示す．
+
+\subsection{潜在状態の抽出方法}
+\label{sec:appendixB1}
+	各Policyは異なる構造を持つため，潜在状態として用いる特徴量も異なる．本研究では，各Policyにおいて行動生成の直前に得られる中間表現を潜在状態として抽出した．具体的には，ACTではTransformer decoderの出力を，Diffusion PolicyではU-Netの最終畳み込み層の直前に位置するボトルネック層直後の特徴量を，VQ-BeTではGPTスタイルのpolicy networkが出力する特徴量のうちaction queryトークンに対応する位置の表現を，$\pi_0$では最終的な行動射影に入力されるsuffix側の出力をそれぞれ用いた．いずれのPolicyも行動チャンクを出力する設計であるため，各エピソードについて行動ステップ方向（チャンク内の時刻方向）に平均をとり，1エピソードあたり1つの潜在ベクトルを得たうえで t-SNE による次元削減を行った．
+
+\subsection{Policy別の追加可視化結果}
+\label{sec:appendixB2}
+	Fig.~\ref{fig:appendixB_act}〜Fig.~\ref{fig:appendixB_pi0}にACT，Diffusion Policy，VQ-BeT，$\pi_0$それぞれについての全タスクにおける t-SNE プロットを示す．各プロットは，タスク成功・失敗，音源位置，音種をラベルとして色付けしたものである．Ours3条件ではOurs1・Ours2・Baselineに比べて，対応するラベルに応じた構造化された分布が観察されやすく，本文の主要な観察と整合している．
+
+	\begin{figure}[t]
+		\centering
+		\includegraphics[keepaspectratio, width=14cm]{fig/fig_c_act.png}
+		\caption{ACTにおける t-SNE プロット．全4タスク（SoundPosition，SoundTone，SoundAll，SoundShake）について，成功/失敗，音源位置，音種のラベルで色付けした．}
+		\label{fig:appendixB_act}
+	\end{figure}
+	\begin{figure}[t]
+		\centering
+		\includegraphics[keepaspectratio, width=14cm]{fig/fig_c_diffusion.png}
+		\caption{Diffusion Policyにおける t-SNE プロット．}
+		\label{fig:appendixB_dp}
+	\end{figure}
+	\begin{figure}[t]
+		\centering
+		\includegraphics[keepaspectratio, width=14cm]{fig/fig_c_vqbet.png}
+		\caption{VQ-BeTにおける t-SNE プロット．}
+		\label{fig:appendixB_vqbet}
+	\end{figure}
+	\begin{figure}[t]
+		\centering
+		\includegraphics[keepaspectratio, width=14cm]{fig/fig_c_pi0.png}
+		\caption{$\pi_0$における t-SNE プロット．}
+		\label{fig:appendixB_pi0}
+	\end{figure}
+
+\end{document}
