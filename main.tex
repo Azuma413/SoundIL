@@ -1,28 +1,30 @@
-\subsection{Audio Processing Parameters}
-\label{sec:appendix_audio_params}
-Table~\ref{tab:audio_params}に，シミュレーションで用いた音響処理パラメータを示す．標準条件では，4台のマイクロフォンアレイを用い，音響表現を10 FPSで更新する．Acoustic Spatial MapとSpectrogramはいずれも$224\times224$にリサイズしてPolicyへ入力する．
+\subsection{Differences between Simulation and Real-World Experiments}
+\label{sec:appendix_sim_real}
+実機実験では，シミュレーションと同じMUSIC，Acoustic Spatial Map生成，Spotforming-NMF，Spectrogram生成の処理系列を用いる．ただし，マイクロフォン配置，ロボット構成，実録音に含まれる雑音に合わせて，Table~\ref{tab:sim_real_diff}に示す差分を導入した．
 
-\begin{table}[t]
+\begin{table*}[t]
 \centering
 \scriptsize
-\caption{シミュレーション音響処理パラメータ．}
-\label{tab:audio_params}
-\begin{tabular}{ll}
+\setlength{\tabcolsep}{3pt}
+\caption{シミュレーション実験と実機実験の処理差分．}
+\label{tab:sim_real_diff}
+\begin{tabular}{p{0.23\textwidth} p{0.34\textwidth} p{0.34\textwidth}}
 \hline
-項目 & 値 \\
+項目 & シミュレーション & 実機 \\
 \hline
-Sampling rate & 16 kHz \\
-STFT FFT length / overlap & 512 / 50\% \\
-Audio window & 1.0 s \\
-Number of arrays $n$ & 4 \\
-Microphones per array / radius & 8 / 3.5 cm \\
-Array placement radius & 30 cm \\
-Room size / reflection order & $10,\mathrm{m}\times10,\mathrm{m}\times3,\mathrm{m}$ / 3 \\
-MUSIC source number & 3 \\
-Audio update rate & 10 FPS \\
-NMF components / threshold & 50 / $1.6\times10^{-3}$ \\
-Spectrogram range / normalization & 0--8000 Hz / min--max \\
-Distance attenuation & $d_{\mathrm{floor}}=10.0,\mathrm{m}$，$\gamma=1.0$ \\
+Robot state/action & Franka Pandaの9次元状態・9次元位置制御指令 & ILOHA右腕6関節 + グリッパ開度の7次元状態・行動 \\
+Camera input & Genesis内の正面・側面RGB画像を$224\times224$で保存 & RealSense画像をクロップ・リサイズして$224\times224$へ変換 \\
+Audio input & Pyroomacousticsで音源と部屋反射を生成 & 4台の8chマイクロフォンアレイから16 kHzで実録音 \\
+MUSIC source number & 3 & 1 \\
+DOA normalization & MUSIC出力を対数化し，方位方向の総和で正規化 & 相対dB化し，60 percentileをノイズ床，15 dBをダイナミックレンジとして正規化 \\
+Frequency normalization & なし & 周波数方向に正規化 \\
+Acoustic Spatial Map coordinates & シミュレーション作業空間に対応するローカルグリッド & 実機の矩形マイク配置に合わせた$1.4,\mathrm{m}$四方のマップ座標 \\
+Distance attenuation & $d_{\mathrm{floor}}=10.0,\mathrm{m}$，$\gamma=1.0$ & $d_{\mathrm{floor}}=0.0,\mathrm{m}$，$\gamma=0.0$ \\
+Spectrogram range / normalization & 0--8000 Hz，min--max正規化 & 0--4000 Hz，2/98 percentile正規化 \\
+Audio update & 10 FPS & 10 FPS \\
+Array channel order & シミュレーションのアレイ生成順 & 左上，右上，右下，左下 \\
+Evaluated policies & ACT，Diffusion Policy，VQ-BeT，$\pi_0$ & ACT \\
+ACT inference & temporal ensemble係数0.01，1 step実行 & temporal ensembleなし，30 steps実行 \\
 \hline
 \end{tabular}
-\end{table}
+\end{table*}
