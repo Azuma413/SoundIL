@@ -1,30 +1,39 @@
-\subsection{Differences between Simulation and Real-World Experiments}
-\label{sec:appendix_sim_real}
-実機実験では，シミュレーションと同じMUSIC，Acoustic Spatial Map生成，Spotforming-NMF，Spectrogram生成の処理系列を用いる．ただし，マイクロフォン配置，ロボット構成，実録音に含まれる雑音に合わせて，Table~\ref{tab:sim_real_diff}に示す差分を導入した．
+\section{Additional Latent Space Visualizations} %B
+\label{sec:appendixB}
 
-\begin{table*}[t]
-\centering
-\scriptsize
-\setlength{\tabcolsep}{3pt}
-\caption{シミュレーション実験と実機実験の処理差分．}
-\label{tab:sim_real_diff}
-\begin{tabular}{p{0.23\textwidth} p{0.34\textwidth} p{0.34\textwidth}}
-\hline
-項目 & シミュレーション & 実機 \\
-\hline
-Robot state/action & Franka Pandaの9次元状態・9次元位置制御指令 & ILOHA右腕6関節 + グリッパ開度の7次元状態・行動 \\
-Camera input & Genesis内の正面・側面RGB画像を$224\times224$で保存 & RealSense画像をクロップ・リサイズして$224\times224$へ変換 \\
-Audio input & Pyroomacousticsで音源と部屋反射を生成 & 4台の8chマイクロフォンアレイから16 kHzで実録音 \\
-MUSIC source number & 3 & 1 \\
-DOA normalization & MUSIC出力を対数化し，方位方向の総和で正規化 & 相対dB化し，60 percentileをノイズ床，15 dBをダイナミックレンジとして正規化 \\
-Frequency normalization & なし & 周波数方向に正規化 \\
-Acoustic Spatial Map coordinates & シミュレーション作業空間に対応するローカルグリッド & 実機の矩形マイク配置に合わせた$1.4,\mathrm{m}$四方のマップ座標 \\
-Distance attenuation & $d_{\mathrm{floor}}=10.0,\mathrm{m}$，$\gamma=1.0$ & $d_{\mathrm{floor}}=0.0,\mathrm{m}$，$\gamma=0.0$ \\
-Spectrogram range / normalization & 0--8000 Hz，min--max正規化 & 0--4000 Hz，2/98 percentile正規化 \\
-Audio update & 10 FPS & 10 FPS \\
-Array channel order & シミュレーションのアレイ生成順 & 左上，右上，右下，左下 \\
-Evaluated policies & ACT，Diffusion Policy，VQ-BeT，$\pi_0$ & ACT \\
-ACT inference & temporal ensemble係数0.01，1 step実行 & temporal ensembleなし，30 steps実行 \\
-\hline
-\end{tabular}
-\end{table*}
+	本節では，本文中のFig.~\ref{fig:fig4}に掲載しきれなかったPolicy・タスクの組み合わせについて追加 t-SNE プロットを示す．
+
+\subsection{潜在状態の抽出方法}
+\label{sec:appendixB1}
+	各Policyは異なる構造を持つため，潜在状態として用いる特徴量も異なる．本研究では，各Policyにおいて行動生成の直前に得られる中間表現を潜在状態として抽出した．具体的には，ACTではTransformer decoderの出力を，Diffusion PolicyではU-Netの最終畳み込み層の直前に位置するボトルネック層直後の特徴量を，VQ-BeTではGPTスタイルのpolicy networkが出力する特徴量のうちaction queryトークンに対応する位置の表現を，$\pi_0$では最終的な行動射影に入力されるsuffix側の出力をそれぞれ用いた．いずれのPolicyもaction chunkを出力する設計であるため，各エピソードについて行動ステップ方向（チャンク内の時刻方向）に平均をとり，1エピソードあたり1つの潜在ベクトルを得たうえで t-SNE による次元削減を行った．
+
+\subsection{Policy別の追加可視化結果}
+\label{sec:appendixB2}
+	Fig.~\ref{fig:appendixB_act}〜Fig.~\ref{fig:appendixB_pi0}にACT，Diffusion Policy，VQ-BeT，$\pi_0$それぞれについての全タスクにおける t-SNE プロットを示す．各プロットは，タスク成功・失敗，音源位置，音種をラベルとして色付けしたものである．
+	タスク成功・失敗については，タスクに成功しているエピソードに含まれるデータ点は青，失敗しているエピソードに含まれるデータ点は，エピソード冒頭は青，中盤は白，終盤を赤となるようなカラーマップで表現した．
+	S2A2 modelではw/o Spec., w/o Spat., Baselineに比べて，対応するラベルに応じた構造化された分布が観察されやすく，本文の主要な観察と整合している．
+
+	\begin{figure}[t]
+		\centering
+		\includegraphics[keepaspectratio, width=14cm]{fig/fig_c1.png}
+		\caption{ACTにおける t-SNE プロット．全4タスク（Localization，Identification，L\&I，Exploratory Task）について，成功/失敗，音源位置，音種のラベルで色付けした．}
+		\label{fig:appendixB_act}
+	\end{figure}
+	\begin{figure}[t]
+		\centering
+		\includegraphics[keepaspectratio, width=14cm]{fig/fig_c2.png}
+		\caption{Diffusion Policyにおける t-SNE プロット．}
+		\label{fig:appendixB_dp}
+	\end{figure}
+	\begin{figure}[t]
+		\centering
+		\includegraphics[keepaspectratio, width=14cm]{fig/fig_c3.png}
+		\caption{VQ-BeTにおける t-SNE プロット．}
+		\label{fig:appendixB_vqbet}
+	\end{figure}
+	\begin{figure}[t]
+		\centering
+		\includegraphics[keepaspectratio, width=14cm]{fig/fig_c4.png}
+		\caption{$\pi_0$における t-SNE プロット．}
+		\label{fig:appendixB_pi0}
+	\end{figure}
