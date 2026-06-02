@@ -1,58 +1,28 @@
-\subsection{Policy Architecture and Hyperparameters}
-\label{sec:appendix_architecture}
+\subsection{Audio Processing Parameters}
+\label{sec:appendix_audio_params}
+Table~\ref{tab:audio_params}に，シミュレーションで用いた音響処理パラメータを示す．標準条件では，4台のマイクロフォンアレイを用い，音響表現を10 FPSで更新する．Acoustic Spatial MapとSpectrogramはいずれも$224\times224$にリサイズしてPolicyへ入力する．
 
-Policy network において，ACTおよび$\pi_0$では，各エンコーダが出力したfeature mapを$1\times1$ convolutionによってpolicy networkの隠れ次元へ射影する．
-その後，feature map上の各空間位置を1つの独立したトークンとして扱い，positional embeddingを加算したトークン列としてpolicy networkに入力する．
-Diffusion PolicyおよびVQ-BeTでは，feature mapをキーポイント特徴数$n_{key}=32$チャンネルを持つ2次元マップへ射影する．
-次に，各チャンネルに対してspatial softmaxを適用し，各空間位置の重みを算出する．
-この重みに基づいて，正規化されたfeature map座標の重み付き平均を計算することで各チャンネルのkeypoint特徴を抽出し，最後にこれらをflattenして1次元のベクトルへと変換してからpolicy networkに入力する．
-
-Table~\ref{tab:policy_architecture}に，各Policy Networkの入力統合方法，エンコーダ，行動生成部，損失関数の概要を示す．表中の\textbf{S2A2}はRGB画像，Acoustic Spatial Map，Spectrogram，Proprioceptionをすべて用いる標準モデルを表す．\textbf{w/o Spat.}はAcoustic Spatial Map Pipelineを除いたモデル，\textbf{w/o Spec.}はSpectrogram Pipelineを除いたモデルである．
-
-\begin{table*}[t]
+\begin{table}[t]
 \centering
 \scriptsize
-\setlength{\tabcolsep}{3pt}
-\caption{S2A2 ModelにおけるPolicy Network別のアーキテクチャ概要．}
-\label{tab:policy_architecture}
-\begin{tabular}{p{0.13\textwidth} p{0.23\textwidth} p{0.23\textwidth} p{0.21\textwidth} p{0.13\textwidth}}
+\caption{シミュレーション音響処理パラメータ．}
+\label{tab:audio_params}
+\begin{tabular}{ll}
 \hline
-Policy & 入力統合 & RGB Encoder & Audio Encoder & 行動生成・損失 \\
+項目 & 値 \\
 \hline
-ACT & 各モダリティ特徴マップをトークン化し，Transformer encoderへ入力． & ImageNet事前学習済みResNet-18，$1\times1$畳み込みで512次元へ射影． & Spatial/Spectral Encoderはいずれも専用ResNet-18．特徴マップを512次元トークンへ射影． & Transformer decoderが行動チャンクを出力．L1損失 + KL損失． \\
-Diffusion Policy & 各特徴量とProprioceptionをconcatし，U-Netのグローバル条件に使用． & ResNet-18 + Spatial Softmax．RGBカメラは同一の標準画像エンコーダで処理． & 専用ResNet-18 + Spatial Softmax． & Conditional U-Netがノイズを予測．DDPMノイズ予測MSE． \\
-VQ-BeT & 各特徴量，Proprioception，action query tokenをGPT-style networkへ入力． & ResNet-18 + Spatial Softmax． & 専用ResNet-18 + Spatial Softmax． & 離散コード分類 + 連続オフセット予測．Focal Loss + L1損失． \\
-$\pi_0$ & RGB，音響，言語トークンをprefixへ，状態・行動・時刻をsuffixへ入力． & PaliGemma画像エンコーダ． & 専用ResNet-18後，$1\times1$畳み込みでPaliGemma次元へ射影． & Gemma expertがflow matchingで行動列を生成．速度場MSE． \\
-\hline
-\end{tabular}
-\end{table*}
-
-実装上，Acoustic Spatial Mapは\texttt{sound0}および\texttt{sound1}をチャンネル方向に結合し，データセット名から決定されるマイク数$m$チャンネルを入力として専用ResNet-18へ与える．Spectrogramは先頭1チャンネルのみを用いる．ACTでは標準RGB EncoderのみImageNet事前学習済み重みを用い，Acoustic Spatial MapおよびSpectrogram用のResNet-18は事前学習なしで初期化する．Diffusion PolicyおよびVQ-BeTではResNet-18の事前学習重みを用いず，Batch NormalizationをGroup Normalizationに置換する．また，Diffusion PolicyおよびVQ-BeTでは入力画像を$84\times84$へresizeしてからResNet-18へ入力する．$\pi_0$では，RGB画像はPaliGemmaの画像エンコーダで処理し，Acoustic Spatial MapおよびSpectrogramは事前学習なしのResNet-18で特徴マップを抽出した後，PaliGemmaの隠れ次元へ射影してprefix tokenとして追加する．
-
-Table~\ref{tab:hyperparams}に，各Policyの主要な学習ハイパーパラメータを示す．ネットワーク構造に強く依存する項目は，Policyごとに分けて記載した．
-
-\begin{table*}[t]
-\centering
-\scriptsize
-\setlength{\tabcolsep}{3pt}
-\caption{各Policy Networkの学習ハイパーパラメータ．}
-\label{tab:hyperparams}
-\begin{tabular}{p{0.18\textwidth} p{0.18\textwidth} p{0.20\textwidth} p{0.20\textwidth} p{0.17\textwidth}}
-\hline
-項目 & ACT & Diffusion Policy & VQ-BeT & $\pi_0$ \\
-\hline
-Optimizer & AdamW & Adam & Adam & AdamW \\
-Learning rate & $1.0\times10^{-5}$ & $1.0\times10^{-4}$ & $1.0\times10^{-4}$（VQ-VAE: $1.0\times10^{-3}$） & $2.5\times10^{-5}$ \\
-Weight decay & $1.0\times10^{-4}$ & $1.0\times10^{-6}$ & $1.0\times10^{-6}$（VQ-VAE: $1.0\times10^{-4}$） & $1.0\times10^{-2}$ \\
-Scheduler & なし & cosine，warmup 500 steps & warmup 500 steps，VQ-VAE 20,000 steps & cosine decay，warmup 1,000 steps，decay 30,000 steps，final LR $2.5\times10^{-6}$ \\
-Batch size & 8 & 32 & 32 & 4 \\
-Observation history & 1 & 2 & 5 & 1 \\
-Action horizon & $H_{\mathrm{act}}=100$ & $H_d=16$，実行8 steps & $H_q=5$，query token数3 & $H_\pi=50$ \\
-Model size & Transformer dim 512，8 heads，encoder 4層，decoder 1層，latent dim 32 & U-Net channels $(512,1024,2048)$，DDPM steps 100 & GPT dim 512，8層，8 heads，RVQ 2層，codebook size 16 & PaliGemma Gemma-2B + action expert Gemma-300M，flow matching inference 10 steps \\
-Normalization & 画像・状態・行動: mean/std & 画像: mean/std，状態・行動: min/max & 画像: identity，状態・行動: min/max & 画像: identity，状態・行動: mean/std \\
-Precision & FP32 & FP32 & FP32 & BF16 mixed precision \\
+Sampling rate & 16 kHz \\
+STFT FFT length / overlap & 512 / 50\% \\
+Audio window & 1.0 s \\
+Number of arrays $n$ & 4 \\
+Microphones per array / radius & 8 / 3.5 cm \\
+Array placement radius & 30 cm \\
+Room size / reflection order & $10,\mathrm{m}\times10,\mathrm{m}\times3,\mathrm{m}$ / 3 \\
+MUSIC source number & 3 \\
+Audio update rate & 10 FPS \\
+NMF components / threshold & 50 / $1.6\times10^{-3}$ \\
+Spectrogram range / normalization & 0--8000 Hz / min--max \\
+Distance attenuation & $d_{\mathrm{floor}}=10.0,\mathrm{m}$，$\gamma=1.0$ \\
 \hline
 \end{tabular}
-\end{table*}
-
-ACTはVAE objectiveを有効にし，KL重みは10.0，dropoutは0.1である．Diffusion PolicyはDDPMの学習・推論ステップ数を100，noise schedulerを\texttt{squaredcos\_cap\_v2}，prediction typeを\texttt{epsilon}とし，サンプルを$[-1,1]$へclipする．VQ-BeTではVQ-VAEを20,000 steps学習した後にcodebookを固定し，offset loss重みを10,000，primary/secondary code分類損失重みをそれぞれ5.0/0.5，code sampling temperatureを0.1とする．$\pi_0$は\texttt{lerobot/pi0\_base}から初期化し，state/actionを32次元へpaddingして扱う．学習時にはgradient checkpointingを有効にし，勾配ノルムを1.0でclipする．学習ステップ数は基本的に100,000 stepsであり，\texttt{soundShake}および\texttt{soundSim}の実験では200,000 stepsとした．
+\end{table}
