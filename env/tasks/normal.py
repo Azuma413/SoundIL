@@ -18,7 +18,20 @@ joints_name = (
 AGENT_DIM = len(joints_name)
 
 class NormalTask:
-    def __init__(self, observation_height, observation_width, show_viewer=False, device="cuda", same_color=False, fix_color=False, num_cubes=3, use_two_boxes=False):
+    def __init__(
+        self,
+        observation_height,
+        observation_width,
+        show_viewer=False,
+        device="cuda",
+        same_color=False,
+        fix_color=False,
+        num_cubes=3,
+        use_two_boxes=False,
+        record_video_camera=False,
+        video_height=720,
+        video_width=1280,
+    ):
         self.device = device
         self.same_color = same_color
         self.fix_color = fix_color
@@ -27,6 +40,10 @@ class NormalTask:
         self.show_viewer = show_viewer
         self.observation_height = observation_height
         self.observation_width = observation_width
+        self.record_video_camera = record_video_camera
+        self.video_height = video_height
+        self.video_width = video_width
+        self.video_cam = None
         self._random = np.random.RandomState()
         self.box_scale = 1.0
         self._build_scene(show_viewer)
@@ -111,6 +128,15 @@ class NormalTask:
             fov=20,
             GUI=False
         )
+        if self.record_video_camera:
+            self.video_cam = self.scene.add_camera(
+                res=(self.video_width, self.video_height),
+                pos=(2.5, -1.2, 1.4),
+                lookat=(0.5, 0.0, 0.1),
+                fov=30,
+                GUI=False,
+                debug=True,
+            )
         self.scene.build()
         self.motors_dof = np.arange(7)
         self.fingers_dof = np.arange(7, 9)
@@ -282,6 +308,13 @@ class NormalTask:
             "observation.images.side": side_pixels,
         }
         return obs
+
+    def render_video(self):
+        if self.video_cam is None:
+            return None
+        pixels = self.video_cam.render()[0]
+        assert pixels.ndim == 3, f"video_pixels shape {pixels.shape} is not 3D (H, W, 3)"
+        return pixels
 
     def save_videos(self, file_name, fps=30):
         self.front_cam.stop_recording(save_to_filename=f"{file_name}_front.mp4", fps=fps)

@@ -6,7 +6,7 @@ from env.tasks.sound import SoundTask
 from env.tasks.sound_camera import SoundConfig
 
 
-def build_sound_config_from_task(task, use_legacy_sound_config=False):
+def build_sound_config_from_task(task, use_legacy_sound_config=False, force_sound_outputs=False):
     if "sound" not in task:
         return None
 
@@ -15,6 +15,7 @@ def build_sound_config_from_task(task, use_legacy_sound_config=False):
         raise ValueError(f"Invalid task format: {task}")
 
     m, f, s, p = map(int, match.groups())
+    requested_mic_array_num = m
     mic_array_num = m
     update_freq = max(1, int(30 / f))
 
@@ -43,6 +44,11 @@ def build_sound_config_from_task(task, use_legacy_sound_config=False):
         use_temporal_smoothing = True
     elif p == 4:
         use_feature = True
+
+    if force_sound_outputs:
+        mic_array_num = max(1, requested_mic_array_num)
+        use_soundmap = True
+        use_spectrogram = True
 
     config_kwargs = {
         "mic_array_num": mic_array_num,
@@ -76,6 +82,10 @@ class GenesisEnv(gym.Env):
             reset_freq=10,
             sound_config=None,
             use_legacy_sound_config=False,
+            force_sound_outputs=False,
+            record_video_camera=False,
+            video_height=720,
+            video_width=1280,
     ):
         super().__init__()
         self.task = task
@@ -85,6 +95,10 @@ class GenesisEnv(gym.Env):
         self.render_mode = render_mode
         self.sound_config = sound_config  # sound_configを保存
         self.use_legacy_sound_config = use_legacy_sound_config
+        self.force_sound_outputs = force_sound_outputs
+        self.record_video_camera = record_video_camera
+        self.video_height = video_height
+        self.video_width = video_width
         self._env = self._make_env_task(sound_config)
         self.observation_space = self._env.observation_space
         self.action_space = self._env.action_space
@@ -144,6 +158,12 @@ class GenesisEnv(gym.Env):
             warnings.warn("front observation is not enabled, cannot render.")
             return None
 
+    def render_video(self):
+        if hasattr(self._env, "render_video"):
+            return self._env.render_video()
+        warnings.warn("video camera is not enabled, cannot render video frame.")
+        return None
+
     def get_task_description(self):
         return self._env.get_task_description()
 
@@ -155,6 +175,9 @@ class GenesisEnv(gym.Env):
                 observation_width=self.observation_width,
                 show_viewer=self.show_viewer,
                 fix_color=fix_color,
+                record_video_camera=self.record_video_camera,
+                video_height=self.video_height,
+                video_width=self.video_width,
             )
         elif "sound" in self.task:
             # task format example: "soundShake-m4-f6-s2-p4"
@@ -165,6 +188,7 @@ class GenesisEnv(gym.Env):
                 sound_config = build_sound_config_from_task(
                     self.task,
                     use_legacy_sound_config=self.use_legacy_sound_config,
+                    force_sound_outputs=self.force_sound_outputs,
                 )
 
             env = SoundTask(
@@ -172,7 +196,10 @@ class GenesisEnv(gym.Env):
                 observation_width=self.observation_width,
                 show_viewer=self.show_viewer,
                 sound_config=sound_config,
-                task_type=task_type
+                task_type=task_type,
+                record_video_camera=self.record_video_camera,
+                video_height=self.video_height,
+                video_width=self.video_width,
             )
         else:
             raise NotImplementedError(f"Task {self.task} is not implemented.")

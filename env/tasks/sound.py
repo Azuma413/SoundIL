@@ -22,7 +22,10 @@ class SoundTask(NormalTask):
         show_viewer=False,
         device="cuda",
         sound_config: SoundConfig = None,
-        task_type="sound" # "sound", "soundDiff", "soundShake", "soundAll", "soundSim"
+        task_type="sound", # "sound", "soundDiff", "soundShake", "soundAll", "soundSim"
+        record_video_camera=False,
+        video_height=720,
+        video_width=1280,
     ):
         self.task_type = task_type
         # sound_configがNoneの場合はデフォルト値を使用
@@ -73,7 +76,10 @@ class SoundTask(NormalTask):
             device=device,
             same_color=same_color,
             num_cubes=num_cubes,
-            use_two_boxes=use_two_boxes
+            use_two_boxes=use_two_boxes,
+            record_video_camera=record_video_camera,
+            video_height=video_height,
+            video_width=video_width,
         )
 
     def _reset_soundshake_cube_layout(self):
