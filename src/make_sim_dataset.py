@@ -324,7 +324,7 @@ if __name__ == "__main__":
     # 新フォーマット例: soundShake-m4-f6-s2-p4
     
     task_candidates = [
-        "sound-m4-f10-s2-p0",
+        "soundSim-m4-f10-s2-p0",
     ]
     
     for task in task_candidates:
