@@ -3,6 +3,7 @@ import argparse
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -15,6 +16,11 @@ import numpy as np
 import sounddevice as sd
 import torch
 from pydub import AudioSegment
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 from env.tasks.sound_camera import SoundCamera, SoundConfig
 
 SOUNDREAL_TASK_NAME = "soundReal-m4-f10-s2-p0"

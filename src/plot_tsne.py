@@ -1,6 +1,7 @@
 import argparse
 import csv
 import os
+import sys
 from contextlib import ExitStack, nullcontext
 from copy import copy
 from pathlib import Path
@@ -21,6 +22,10 @@ from lerobot.policies.vqbet.modeling_vqbet import VQBeTPolicy
 from lerobot.policies.utils import prepare_observation_for_inference
 from lerobot.utils.constants import OBS_STR
 from lerobot.utils.utils import get_safe_torch_device
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from src.eval_policy import (
     fill_missing_image_observations,

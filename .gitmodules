@@ -1,6 +1,6 @@
 [submodule "lerobot"]
-	path = lerobot
+	path = libs/lerobot
 	url = https://github.com/Azuma413/lerobot_Azuma413.git
 [submodule "Genesis"]
-	path = Genesis
+	path = libs/Genesis
 	url = https://github.com/Genesis-Embodied-AI/Genesis.git

@@ -287,7 +287,7 @@ inside_main() {
 
 ensure_image() {
     if ! docker image inspect "${IMAGE_TAG}" >/dev/null 2>&1; then
-        docker build -t "${IMAGE_TAG}" -f "${ROOT_DIR}/Dockerfile" "${ROOT_DIR}"
+        docker build -t "${IMAGE_TAG}" -f "${ROOT_DIR}/docker/Dockerfile" "${ROOT_DIR}"
     fi
 }
 

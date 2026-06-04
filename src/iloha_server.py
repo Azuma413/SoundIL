@@ -868,4 +868,4 @@ if __name__ == "__main__":
     print("Unity-Iloha通信サーバーを起動します...")
     asyncio.run(node.start_server())
 
-# uv run iloha_server.py
+# uv run src/iloha_server.py

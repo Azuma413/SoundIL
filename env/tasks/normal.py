@@ -52,8 +52,6 @@ class NormalTask:
             sim_options=gs.options.SimOptions(dt=0.01),
             rigid_options=gs.options.RigidOptions(
                 box_box_detection=True,
-                # noslip_iterations=5,
-                # constraint_timeconst=0.001,
             ),
             show_viewer=show_viewer,
         )
@@ -90,7 +88,6 @@ class NormalTask:
                 gs.morphs.URDF(file="URDF/box/box.urdf", pos=(0.5, -0.15, 0.0), scale=self.box_scale),
                 surface=gs.surfaces.Plastic(color=(0.8, 0.8, 0.8))
             )
-            # 互換性のためにself.boxも定義しておく（デフォルトは左にしておくが、タスクによって使い分ける）
             self.box = self.box_left 
         else:
             self.box = self.scene.add_entity(

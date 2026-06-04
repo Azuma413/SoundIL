@@ -382,10 +382,6 @@ async def evaluation_loop(
             print(f"アクション予測エラー: {exc}")
             raise
 
-        ######### 補正 #########
-        right_action[1] -= 0.03
-        #######################
-
         if first_action_time is None:
             first_action_time = time.time()
 

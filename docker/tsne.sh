@@ -29,7 +29,7 @@ EOF
 
 ensure_image() {
     if ! docker image inspect "${IMAGE_TAG}" >/dev/null 2>&1; then
-        docker build -t "${IMAGE_TAG}" -f "${ROOT_DIR}/Dockerfile" "${ROOT_DIR}"
+        docker build -t "${IMAGE_TAG}" -f "${ROOT_DIR}/docker/Dockerfile" "${ROOT_DIR}"
     fi
 }
 
@@ -129,7 +129,7 @@ inside_main() {
     mkdir -p outputs/eval outputs/train
 
     CMD=(
-        uv run plot_tsne.py
+        uv run src/plot_tsne.py
         --training-name "${TRAINING_NAME}"
         --checkpoint-step "${CHECKPOINT_STEP}"
         --dataset-name "${DATASET_NAME}_0"

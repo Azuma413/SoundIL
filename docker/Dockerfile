@@ -36,14 +36,12 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     uv python install 3.10
 
 COPY pyproject.toml README.md ./
-COPY Genesis/pyproject.toml Genesis/README.md ./Genesis/
-COPY lerobot/pyproject.toml lerobot/README.md ./lerobot/
-RUN mkdir -p docs src env docker apptainer
+COPY libs/Genesis/pyproject.toml libs/Genesis/README.md ./libs/Genesis/
+COPY libs/lerobot/pyproject.toml libs/lerobot/README.md ./libs/lerobot/
+RUN mkdir -p docs src env docker libs/Genesis libs/lerobot
 
 COPY . .
 
-RUN uv sync --python 3.10 && \
-    uv pip install --python /opt/venv/bin/python -e ./Genesis && \
-    uv pip install --python /opt/venv/bin/python -e "./lerobot/[pi]"
+RUN uv sync --python 3.10
 
 CMD ["/bin/bash"]
