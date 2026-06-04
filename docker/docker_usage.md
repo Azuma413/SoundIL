@@ -1,30 +1,44 @@
-# Docker環境
+# Docker Usage
 
-### 前提
+This guide describes the Docker-based workflow for SoundIL. The wrapper scripts build the image when needed, run the project with GPU access, and mount the repository so that datasets and outputs remain on the host machine.
 
-- NVIDIA GPU が利用でき、`docker` と NVIDIA Container Toolkit が入っていること
-- `datasets/` と `outputs/` はホスト側のディレクトリをそのまま使うこと
+## Prerequisites
 
-`./docker/run.sh` は、指定したイメージがまだ無ければ自動で `Dockerfile` からビルドします。
+- An NVIDIA GPU
+- Docker
+- NVIDIA Container Toolkit
+- A cloned SoundIL repository with submodules
 
-### 初回ログイン
+The Docker scripts use the host repository directly. In particular, `datasets/` and `outputs/` are bind-mounted from the host, so generated datasets, checkpoints, evaluation videos, and plots stay available after the container exits.
+
+The default image tag is `myproject:latest`. You can override it with `IMAGE_TAG`:
+
+```bash
+IMAGE_TAG=soundil:latest ./docker/run.sh --help
+```
+
+## Authentication
+
+Run the login command once before training if you use Hugging Face gated models or Weights & Biases logging:
 
 ```bash
 ./docker/run.sh login
 ```
 
-以下は自動で作成・マウントされるため、`login` で入力した認証情報は次回以降の `train` / `train-eval` / `eval` でも再利用できます。
+The script creates and mounts these host-side paths:
 
 - `${HOME}/.cache/huggingface`
 - `${HOME}/.cache/wandb`
 - `${HOME}/.config/wandb`
 - `${HOME}/.netrc`
 
-`pi0` は gated model の `google/paligemma-3b-pt-224` を使うため、Hugging Face 側でモデル利用申請が承認されたアカウントでログインしてください。
+The saved credentials are reused by later `train`, `train-eval`, `eval`, and `tsne` runs.
 
-### 学習と評価
+`pi0` uses the gated `google/paligemma-3b-pt-224` model through `lerobot/pi0_base`. Make sure your Hugging Face account has access before running Pi0 experiments.
 
-学習してからそのまま評価する例です。
+## Training and Evaluation
+
+Use `train-eval` to train one or more seeds and evaluate each run immediately after training:
 
 ```bash
 ./docker/run.sh train-eval \
@@ -36,33 +50,55 @@
   --save-freq 10000
 ```
 
-主なオプション:
+The output directory is always:
 
-- `--policy`: `act` / `diffusion` / `vqbet` / `pi0`
-- `--save-freq`: チェックポイント保存間隔
-- `--batch-size`: ポリシーごとの既定値を上書き
-- `--policy-device`: 既定は `cuda`
-- `--episode-num`: 評価エピソード数
-- `--checkpoint-step`: 評価時に使うチェックポイント。省略時は `steps`
-- `--show-viewer`: 評価時に Genesis viewer を表示
-- `--extra-train-arg`: `lerobot-train` に追加の引数を渡す
-- `--extra-eval-arg`: `src/eval_policy.py` に追加の引数を渡す
+```text
+outputs/train/<policy>_<dataset-name>_seed<seed>
+```
 
-seed の数に関係なく、出力先は `outputs/train/<policy>_<dataset>_seed<seed>` になります。
+For the command above, the training run is saved as:
 
-### 学習のみ
+```text
+outputs/train/act_sound-m4-f10-s2-p0_0_seed0
+```
+
+## Training Only
+
+Use `train` when you do not want evaluation to run after training:
 
 ```bash
 ./docker/run.sh train \
   --dataset-name sound-m4-f10-s2-p0_0 \
   --gpu 1 \
-  --seeds 2 \
+  --policy vqbet \
+  --seeds "0,1,2" \
   --steps 100000 \
-  --save-freq 10000 \
-  --policy vqbet
+  --save-freq 10000
 ```
 
-### 評価のみ
+If `--batch-size` is omitted, `docker/run.sh` chooses a default by policy:
+
+- `act`: 8
+- `diffusion`: 32
+- `vqbet`: 32
+- `pi0`: 4
+
+## Evaluation Only
+
+Use `eval` to evaluate an existing training run:
+
+```bash
+./docker/run.sh eval \
+  --training-name diffusion_soundShake-m4-f10-s2-p0_0_seed2 \
+  --gpu 0 \
+  --dataset-name soundShake-m4-f10-s2-p0_0 \
+  --checkpoint-step 100000 \
+  --episode-num 100
+```
+
+If `--checkpoint-step` is omitted during `eval`, the script uses `last`. During `train-eval`, the default evaluation checkpoint is the value of `--steps`.
+
+To sweep multiple checkpoints:
 
 ```bash
 for step in 20000 40000 60000 80000 100000 120000 140000 160000 180000; do
@@ -75,21 +111,81 @@ for step in 20000 40000 60000 80000 100000 120000 140000 160000 180000; do
 done
 ```
 
-./docker/run.sh eval \
-  --training-name pi0_soundShake-m4-f10-s1-p0_0_seed2 \
-  --gpu 0 \
-  --dataset-name soundShake-m4-f10-s1-p0_0 \
-  --checkpoint-step 200000 \
-  --episode-num 100
+## Common Options
 
-### ヘルプ
+`docker/run.sh` accepts these options for training and evaluation:
+
+- `--gpu`: value for `CUDA_VISIBLE_DEVICES` inside the container, for example `0` or `1,2`
+- `--dataset-name`: dataset directory under `datasets/`
+- `--training-name`: training directory under `outputs/train/`, required for `eval`
+- `--policy`: `act`, `diffusion`, `vqbet`, or `pi0`
+- `--steps`: number of training steps
+- `--save-freq`: checkpoint save frequency
+- `--seeds`: space-separated or comma-separated seed list
+- `--batch-size`: override the policy-specific default batch size
+- `--policy-device`: usually `cuda`
+- `--episode-num`: number of evaluation episodes
+- `--checkpoint-step`: checkpoint used for evaluation
+- `--show-viewer`: show the Genesis viewer during evaluation
+- `--no-eval`: skip evaluation after training
+- `--extra-train-arg`: pass one additional argument to `lerobot-train`
+- `--extra-eval-arg`: pass one additional argument to `src/eval_policy.py`
+
+For example, to pass additional LeRobot training arguments:
+
+```bash
+./docker/run.sh train \
+  --dataset-name sound-m4-f10-s2-p0_0 \
+  --gpu 0 \
+  --policy act \
+  --extra-train-arg --wandb.enable=false \
+  --extra-train-arg --policy.n_action_steps=8
+```
+
+## t-SNE
+
+Use `docker/tsne.sh` to run `src/plot_tsne.py` inside the same Docker environment:
+
+```bash
+./docker/tsne.sh \
+  --policy diffusion \
+  --dataset-name soundDiff-m4-f10-s2-p0 \
+  --gpu 2 \
+  --checkpoint-step last \
+  --episode-num 100 \
+  --hidden-reduction mean
+```
+
+The script also supports the positional form:
+
+```bash
+./docker/tsne.sh diffusion soundDiff-m4-f10-s2-p0 2
+```
+
+By default, the wrapper infers:
+
+- `--training-name <policy>_<dataset-name>_0_seed0`
+- `--dataset-name <dataset-name>_0` for `src/plot_tsne.py`
+- `--checkpoint-step last`
+- `--hidden-reduction mean`
+
+Use `--training-name` or `--extra-tsne-arg` when your experiment uses a different naming pattern:
+
+```bash
+./docker/tsne.sh \
+  --policy act \
+  --dataset-name sound-m4-f10-s2-p0 \
+  --gpu 0 \
+  --training-name act_sound-m4-f10-s2-p0_0_seed1 \
+  --extra-tsne-arg --color-by \
+  --extra-tsne-arg success
+```
+
+## Help
+
+Print the available commands and options:
 
 ```bash
 ./docker/run.sh --help
-```
-
-### t-SNEプロット
-policy, dataset name, gpu indexの順
-```bash
-./docker/tsne.sh diffusion soundDiff-m4-f10-s2-p0 2
+./docker/tsne.sh --help
 ```
