@@ -44,6 +44,17 @@ def build_sound_config_from_task(task, use_legacy_sound_config=False):
     elif p == 4:
         use_feature = True
 
+    # Parse noise/spectrogram-mode suffix: -noN (with noise) or -nxN (no noise)
+    # Default (no suffix): no noise, Spotforming (nx0)
+    mode_match = re.search(r"-(no|nx)(\d+)", task)
+    if mode_match:
+        noise_type = mode_match.group(1)
+        spectrogram_mode = int(mode_match.group(2))
+        noise_intensity = 0.3 if noise_type == "no" else 0.0
+    else:
+        noise_intensity = 0.0
+        spectrogram_mode = 0
+
     config_kwargs = {
         "mic_array_num": mic_array_num,
         "update_freq": update_freq,
@@ -53,6 +64,8 @@ def build_sound_config_from_task(task, use_legacy_sound_config=False):
         "use_temporal_smoothing": use_temporal_smoothing,
         "use_feature": use_feature,
         "audio_file_path": "sounds/1.wav",
+        "noise_intensity": noise_intensity,
+        "spectrogram_mode": spectrogram_mode,
     }
     if use_legacy_sound_config:
         config_kwargs.update(

@@ -86,6 +86,8 @@ class SoundConfig:
     doa_spectrum_noise_percentile: float = 50.0
     doa_spectrum_dynamic_range_db: float = 18.0
     doa_frequency_normalization: bool = False
+    # スペクトログラム生成モード: 0-Spotforming, 1-単一マイク, 2-単純平均
+    spectrogram_mode: int = 0
 
 class SoundCamera:
     """音響シミュレーションとSoundMap生成を行うカメラクラス"""
@@ -461,10 +463,10 @@ class SoundCamera:
             start_idx = i * self.config.mics_per_array
             end_idx = (i + 1) * self.config.mics_per_array
             signals = room.mic_array.signals[start_idx:end_idx]
-            mean_signal = np.mean(signals)
             if self.config.noise_intensity > 0:
-                noise = np.random.randn(*signals.shape) * mean_signal * self.config.noise_intensity
-                signals = signals*(1.0 - self.config.noise_intensity) + noise
+                rms = np.sqrt(np.mean(signals ** 2))
+                noise = np.random.randn(*signals.shape) * rms * self.config.noise_intensity
+                signals = signals + noise
             mic_signals_list.append(signals)
         if zero_flag:
             doa_mic_signals_list = [np.zeros_like(signals) for signals in mic_signals_list]
@@ -761,9 +763,29 @@ class SoundCamera:
         mic_signals_list: List[Optional[np.ndarray]],
     ) -> Optional[np.ndarray]:
         """
-        NMFベースのスポットフォーミングを実行し、
-        分離された音源のスペクトログラムを画像化して返す
+        スペクトログラムを生成して返す。
+        spectrogram_mode=0: NMFベースのSpotforming
+        spectrogram_mode=1: 単一マイク（最初のアレイの最初のマイク）
+        spectrogram_mode=2: 全マイク信号の単純平均
         """
+        if self.config.spectrogram_mode == 1:
+            if not mic_signals_list:
+                return None
+            audio = mic_signals_list[0][0][:self.required_length]
+            return self.create_spectrogram_image_from_audio(audio)
+
+        if self.config.spectrogram_mode == 2:
+            if not mic_signals_list:
+                return None
+            all_mics = [
+                mic_signals_list[i][j]
+                for i in range(len(mic_signals_list))
+                for j in range(mic_signals_list[i].shape[0])
+            ]
+            audio = np.mean(np.stack(all_mics, axis=0), axis=0)[:self.required_length]
+            return self.create_spectrogram_image_from_audio(audio)
+
+        # mode 0: Spotforming
         combined_map = self.build_combined_sound_map(
             sound_maps,
             power=self.config.combined_map_power,

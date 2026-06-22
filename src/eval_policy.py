@@ -139,7 +139,15 @@ def infer_dataset_name(training_name):
     return "_".join(dataset_parts)
 
 def infer_task_name(dataset_name):
-    """Infer Genesis task name from dataset name."""
+    """Infer Genesis task name from dataset name.
+
+    Dataset names follow the pattern ``<task>_<index>``, where ``<task>``
+    may include a trailing noise/mode suffix such as ``-no1`` or ``-nx2``.
+    Examples:
+        sound-m4-f10-s2-p0_0        -> sound-m4-f10-s2-p0
+        sound-m4-f10-s2-p0-no1_0   -> sound-m4-f10-s2-p0-no1
+        sound-m4-f10-s2-p0-nx2_0   -> sound-m4-f10-s2-p0-nx2
+    """
     if "_" not in dataset_name:
         return dataset_name
     return dataset_name.rsplit("_", 1)[0]
