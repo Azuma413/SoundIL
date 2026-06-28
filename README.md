@@ -124,23 +124,3 @@ s2-2| - | - |
 s0-0|12 | 0 |12
 s0-1| - | - |
 s0-2| - | - |
-
-
-# TODO
-原因は主に `make_sim_dataset.py` ではなく、音観測を作る `SoundCamera` 側にあります。
-
-一番大きいのは [env/tasks/sound_camera.py:535](/home/hiratsuka/SourceCode/SoundIL/env/tasks/sound_camera.py:535) の DOA スコア正規化です。
-
-```python
-spec = np.log10(np.mean(doa.Pssl, axis=1))
-spec_sum = np.sum(spec)
-spec = spec / spec_sum
-```
-
-`log10(Pssl)` は負の値を多く含むので、`spec_sum` が負になることがあります。その場合、強い DOA 方向ほど小さい値になり、弱い方向ほど大きい値になるため、DOA スコアが反転します。実際に小さく確認すると、MUSIC の `Pssl` 最大方向が index `146` なのに、legacy 正規化後の最大方向が index `323` になりました。
-
-もう一つ不安定化しているのが [env/tasks/sound_camera.py:260](/home/hiratsuka/SourceCode/SoundIL/env/tasks/sound_camera.py:260) 付近の音声バッファ更新です。`np.roll()` したあとに、さらに `self.signal_buffer[n_samples:] = self.signal_buffer[:-n_samples]` しているため、新しいチャンクが二重に混ざり、履歴が壊れます。これで MUSIC に入る信号がフレームごとに不自然になります。
-
-さらに [src/make_sim_dataset.py:242](/home/hiratsuka/SourceCode/SoundIL/src/make_sim_dataset.py:242) で reset 直後の `env.get_obs()` が2回呼ばれています。`get_obs()` は単なる読み取りではなく `sound_cam.render()` を通じて `call_count`、音声バッファ、キャッシュを進めるので、保存開始前に音観測だけ余分に進みます。
-
-まとめると、直接の「DOA反転」は legacy DOA 正規化、表示の不安定さはそれに加えて音声バッファ更新バグと reset 直後の二重 `get_obs()` が重なって起きています。`-no*` タスクなら未シードのノイズも反転頻度をさらに上げます。

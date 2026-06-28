@@ -242,9 +242,6 @@ def main(
             # reset後の初期観測を取得
             current_obs = env.get_obs()
             
-            # reset後の初期観測を取得
-            current_obs = env.get_obs()
-            
             # ステージリストを作成
             stage_sequence = []
             
@@ -325,8 +322,8 @@ if __name__ == "__main__":
     
     task_candidates = [
         "soundDiff-m4-f10-s2-p0-no0",
-        "soundDiff-m4-f10-s2-p0-no1",
-        "soundDiff-m4-f10-s2-p0-no2",
+        # "soundDiff-m4-f10-s2-p0-no1",
+        # "soundDiff-m4-f10-s2-p0-no2",
     ]
     
     for task in task_candidates:
@@ -344,7 +341,7 @@ if __name__ == "__main__":
         sound_config = None 
         
         main(
-            episode_num=100,
+            episode_num=1,
             task=task,
             stage_dict=stage_dict,
             observation_height=224,

@@ -252,17 +252,11 @@ class SoundCamera:
 
         # 1. 新しい音源チャンクを取得
         new_chunk = self._get_audio_chunk(n_samples)
-        # Create a new buffer by concatenating new_chunk and the previous buffer (minus last n_samples)
         if n_samples >= self.required_length:
-            self.signal_buffer = new_chunk[:self.required_length][::-1] # Just take new chunk if it's too long? No, logic says prepend.
-            pass
-        
-        # Efficient rolling
-        self.signal_buffer = np.roll(self.signal_buffer, n_samples)
-        self.signal_buffer[:n_samples] = new_chunk[::-1] # Store new chunk in reverse so index 0 is newest sample?
-
-        self.signal_buffer[n_samples:] = self.signal_buffer[:-n_samples]
-        self.signal_buffer[:n_samples] = new_chunk[::-1] # Store time-reversed new chunk?
+            self.signal_buffer = new_chunk[-self.required_length:][::-1]
+        else:
+            self.signal_buffer[n_samples:] = self.signal_buffer[:-n_samples]
+            self.signal_buffer[:n_samples] = new_chunk[::-1]
 
         # 3. 速度履歴の更新
         self.velocity_history.insert(0, (velocity, n_samples))
@@ -534,11 +528,15 @@ class SoundCamera:
 
     def _get_doa_spectrum(self, doa: pra.doa.MUSIC) -> np.ndarray:
         if self.config.doa_spectrum_mode == "legacy":
-            spec = np.log10(np.mean(doa.Pssl, axis=1))
+            power = np.asarray(np.mean(doa.Pssl, axis=1), dtype=np.float32)
+            power = np.nan_to_num(power, nan=0.0, posinf=0.0, neginf=0.0)
+            power = np.maximum(power, 1e-12)
+            spec = np.log10(power)
+            spec = spec - np.min(spec)
             spec_sum = np.sum(spec)
-            if spec_sum != 0:
+            if spec_sum > 0:
                 spec = spec / spec_sum
-            return spec
+            return spec.astype(np.float32, copy=False)
 
         power = np.asarray(np.mean(doa.Pssl, axis=1), dtype=np.float32)
         power = np.nan_to_num(power, nan=0.0, posinf=0.0, neginf=0.0)
