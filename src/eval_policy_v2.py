@@ -806,44 +806,62 @@ def main(
         )
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Evaluate a trained policy checkpoint.")
-    parser.add_argument(
-        "--training-name",
-        nargs="+",
-        default=["act_soundDiff-m4-f10-s2-p0_0"],
-        help="Model directory name under outputs/train/.",
-    )
-    parser.add_argument(
-        "--checkpoint-step",
-        nargs="+",
-        default=["100000"],
-        help='Checkpoint step under outputs/train/<training_name>/checkpoints/. Use "last" if needed.',
-    )
-    parser.add_argument(
-        "--dataset-name",
-        nargs="*",
-        default=None,
-        help="Dataset directory name under datasets/. If omitted, it is inferred from training-name.",
-    )
-    parser.add_argument("--observation-height", type=int, default=224)
-    parser.add_argument("--observation-width", type=int, default=224)
-    parser.add_argument("--episode-num", type=int, default=100)
-    parser.add_argument(
-        "--episode-seed",
-        type=int,
-        default=0,
-        help="Base seed. Policy A/B episode X use the same seed: episode_seed + X - 1.",
-    )
-    parser.add_argument("--show-viewer", action="store_true")
-    args = parser.parse_args()
+    # parser = argparse.ArgumentParser(description="Evaluate a trained policy checkpoint.")
+    # parser.add_argument(
+    #     "--training-name",
+    #     nargs="+",
+    #     default=["act_soundDiff-m4-f10-s2-p0_0"],
+    #     help="Model directory name under outputs/train/.",
+    # )
+    # parser.add_argument(
+    #     "--checkpoint-step",
+    #     nargs="+",
+    #     default=["100000"],
+    #     help='Checkpoint step under outputs/train/<training_name>/checkpoints/. Use "last" if needed.',
+    # )
+    # parser.add_argument(
+    #     "--dataset-name",
+    #     nargs="*",
+    #     default=None,
+    #     help="Dataset directory name under datasets/. If omitted, it is inferred from training-name.",
+    # )
+    # parser.add_argument("--observation-height", type=int, default=224)
+    # parser.add_argument("--observation-width", type=int, default=224)
+    # parser.add_argument("--episode-num", type=int, default=100)
+    # parser.add_argument(
+    #     "--episode-seed",
+    #     type=int,
+    #     default=0,
+    #     help="Base seed. Policy A/B episode X use the same seed: episode_seed + X - 1.",
+    # )
+    # parser.add_argument("--show-viewer", action="store_true")
+    # args = parser.parse_args()
+
+    # main(
+    #     training_name=args.training_name,
+    #     observation_height=args.observation_height,
+    #     observation_width=args.observation_width,
+    #     episode_num=args.episode_num,
+    #     show_viewer=args.show_viewer,
+    #     checkpoint_step=args.checkpoint_step,
+    #     dataset_name=args.dataset_name,
+    #     episode_seed=args.episode_seed,
+    # )
 
     main(
-        training_name=args.training_name,
-        observation_height=args.observation_height,
-        observation_width=args.observation_width,
-        episode_num=args.episode_num,
-        show_viewer=args.show_viewer,
-        checkpoint_step=args.checkpoint_step,
-        dataset_name=args.dataset_name,
-        episode_seed=args.episode_seed,
+        training_name=[
+            "diffusion_soundShake-m4-f10-s0-p0_0_seed0",
+            # "diffusion_soundShake-m4-f10-s2-p0_0_seed0",
+            # "diffusion_soundSim-m4-f10-s0-p0_0_seed0",
+            # "diffusion_soundSim-m4-f10-s1-p0_0_seed0",
+            # "diffusion_soundSim-m4-f10-s2-p0_0_seed0",
+            # "diffusion_soundSim-m4-f10-s3-p0_0_seed0",
+        ],
+        observation_height=224,
+        observation_width=224,
+        episode_num=1,
+        show_viewer=False,
+        checkpoint_step=["200000"],
+        dataset_name=None,
+        episode_seed=13,
     )

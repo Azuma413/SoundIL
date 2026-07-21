@@ -132,8 +132,8 @@ class NormalTask:
             self.video_cam = self.scene.add_camera(
                 res=(self.video_width, self.video_height),
                 pos=(2.5, -1.2, 1.4),
-                lookat=(0.5, 0.0, 0.1),
-                fov=30,
+                lookat=(0.0, 0.0, 0.2),
+                fov=22,
                 GUI=False,
                 debug=True,
             )
