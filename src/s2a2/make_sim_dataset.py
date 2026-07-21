@@ -1,11 +1,9 @@
 import numpy as np
 from PIL import Image
 import os
-import sys
 import copy
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from env.genesis_env import GenesisEnv
-from env.tasks.normal import joints_name, AGENT_DIM
+from s2a2.env.genesis_env import GenesisEnv
+from s2a2.env.tasks.normal import joints_name, AGENT_DIM
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 saved_cube_pos = None
@@ -77,8 +75,8 @@ def get_left_and_right_cube_names(task):
 def expert_policy(env, stage, target_cube_name=None):
     global saved_cube_pos, is_first_call
     task = env._env
-    
-    # ターゲットのCubeとBoxを決定
+
+    # Determine the target cube and box
     target_cube_pos = None
     target_box_pos = None
     
@@ -156,7 +154,7 @@ def expert_policy(env, stage, target_cube_name=None):
     elif stage == "release":
         target_pos = box_pos + np.array([0.0, 0.0, 0.25])
         grip = grip_open
-    elif stage == "drop":  # soundShake失敗時用：持ち上げた位置で離す
+    elif stage == "drop":  # for soundShake failure: release at the lifted position
         if saved_cube_pos is not None:
             target_pos = np.array([saved_cube_pos[0], saved_cube_pos[1], 0.25])
         else:
@@ -182,7 +180,7 @@ def initialize_dataset(env: GenesisEnv) -> LeRobotDataset:
     while os.path.exists(f"datasets/{task}_{dict_idx}"):
         dict_idx += 1
         dataset_path = f"datasets/{task}_{dict_idx}"
-    # env.observation_spaceの内容に基づいてfeaturesを定義
+    # Define features based on the contents of env.observation_space
     features = {"action": {"dtype": "float32", "shape": (AGENT_DIM,), "names": joints_name}}
     for key, space in env.observation_space.spaces.items():
         if key == "observation.state":
@@ -193,7 +191,7 @@ def initialize_dataset(env: GenesisEnv) -> LeRobotDataset:
             ]
             features[key] = {"dtype": "float32", "shape": (9,), "names": states_name}
         elif key.startswith("observation.images"):
-            # すべての画像は3チャンネル（sound0, sound1, specも含む）
+            # All images are 3 channels (including sound0, sound1, spec)
             features[key] = {"dtype": "video", "shape": (height, width, 3), "names": ("height", "width", "channels")}
     lerobot_dataset = LeRobotDataset.create(
         repo_id=None,
@@ -238,27 +236,27 @@ def main(
             for key in env.observation_space.spaces.keys():
                 obs_dict[key] = []
             save_flag = False
-            
-            # reset後の初期観測を取得
+
+            # Get the initial observation after reset
             current_obs = env.get_obs()
-            
-            # reset後の初期観測を取得
+
+            # Get the initial observation after reset
             current_obs = env.get_obs()
-            
-            # ステージリストを作成
+
+            # Build the stage list
             stage_sequence = []
-            
+
             if "soundShake" in task:
                 correct_cube = env._env.target_cube_name # "cubeR" or "cubeG"
                 left_cube, right_cube = get_left_and_right_cube_names(env._env)
 
-                # soundShakeでは必ず左側のCubeから持ち上げる
+                # In soundShake, always lift the left cube first
                 if left_cube != correct_cube:
                     stage_sequence.append(("hover", stage_dict["hover"], left_cube))
                     stage_sequence.append(("stabilize", stage_dict["stabilize"], left_cube))
                     stage_sequence.append(("grasp", stage_dict["grasp"], left_cube))
                     stage_sequence.append(("lift", stage_dict["lift"], left_cube))
-                    stage_sequence.append(("drop", 30, left_cube)) # 持ち上げて落とす
+                    stage_sequence.append(("drop", 30, left_cube)) # lift and drop
 
                     stage_sequence.append(("hover", stage_dict["hover"], right_cube))
                     stage_sequence.append(("stabilize", stage_dict["stabilize"], right_cube))
@@ -271,7 +269,7 @@ def main(
                     for stage in stage_dict.keys():
                         stage_sequence.append((stage, stage_dict[stage], left_cube))
             else:
-                # 通常のタスク
+                # Normal task
                 for stage in stage_dict.keys():
                     stage_sequence.append((stage, stage_dict[stage], None))
 
@@ -280,13 +278,13 @@ def main(
                 for t in range(steps):
                     action = expert_policy(env, stage_name, target_cube_name=target_name)
                     
-                    # 先に現在の観測とアクションを保存（obs[t]とaction[t]のペア）
+                    # First save the current observation and action (obs[t] and action[t] pair)
                     obs_dict["action"].append(action)
                     for key in current_obs.keys():
                         if key in obs_dict.keys():
                             obs_dict[key].append(current_obs[key])
                     
-                    # アクションを実行して次の観測を取得
+                    # Execute the action and get the next observation
                     current_obs, reward, _, _, _ = env.step(action)
                     
                     if reward > 0:
@@ -319,9 +317,9 @@ def main(
             continue
     env.close()
 if __name__ == "__main__":
-    # datasetを作成したいタスクを指定
+    # Specify the task for which to create a dataset
     # task = "soundShake-m3-fx-so" # "sound-m3-fx-sx" "normal"
-    # 新フォーマット例: soundShake-m4-f6-s2-p4
+    # New format example: soundShake-m4-f6-s2-p4
     
     task_candidates = [
         "soundSim-m4-f10-s2-p0",
@@ -329,17 +327,17 @@ if __name__ == "__main__":
     
     for task in task_candidates:
         stage_dict = {
-            "hover": 100, # cubeの上に手を持っていく
-            "stabilize": 40, # cubeの上で手を安定させる
-            "grasp": 20, # cubeを掴む
-            "lift": 50, # cubeを持ち上げる
-            "to_box": 60, # cubeを箱の上に持っていく
-            "stabilize_box": 20, # cubeを箱の上で安定させる
-            "release": 60 # cubeを離す
+            "hover": 100, # move the hand above the cube
+            "stabilize": 40, # stabilize the hand above the cube
+            "grasp": 20, # grasp the cube
+            "lift": 50, # lift the cube
+            "to_box": 60, # move the cube above the box
+            "stabilize_box": 20, # stabilize the cube above the box
+            "release": 60 # release the cube
         }
-        
-        # GenesisEnv内で解析されるため、sound_configはNoneで渡す
-        sound_config = None 
+
+        # Pass sound_config as None since it is parsed inside GenesisEnv
+        sound_config = None
         
         main(
             episode_num=100,
@@ -353,16 +351,16 @@ if __name__ == "__main__":
         )
 
 
-# normal: 音は関係なく，赤，青，緑のCubeから指定された色のCubeを箱に入れるタスク
-# normal-fix: 音は関係なく，赤色のCubeを箱に入れるタスク
-# sound: 2つの見た目が同じスピーカのうち，音が鳴っている方をピックして箱に入れるタスク
-# soundDiff: 1つのスピーカについて，音Aが鳴っている場合は右の箱，音Bが鳴っている場合は左の箱に入れるタスク
-# soundShake: 2つの見た目が同じスピーカについて，移動させた際に音が鳴る方を箱の中に入れるタスク
-# soundAll: 2つの見た目が同じスピーカのうち音Aが鳴っている方をピックし，移動時に音Bなら右の箱，音Cなら左の箱に入れるタスク
-# soundSim: 2つの見た目が同じスピーカのうち，片方から特定の音（音A or B）が流れる。音がなっている方のスピーカーをつかみ、音Aなら右の箱、Bなら左の箱に入れるタスク
-# soundSimでは音A=sounds/0.wav, 音B=sounds/1.wav
+# normal: sound-independent task; pick the cube of the specified color from red, blue, green cubes and put it in the box
+# normal-fix: sound-independent task; put the red cube in the box
+# sound: task to pick whichever of two identical-looking speakers is making sound and put it in the box
+# soundDiff: for a single speaker, put it in the right box if sound A plays, or the left box if sound B plays
+# soundShake: for two identical-looking speakers, put the one that makes sound when moved into the box
+# soundAll: pick whichever of two identical-looking speakers plays sound A, then put it in the right box if sound B plays while moving, or the left box if sound C plays
+# soundSim: one of two identical-looking speakers plays a specific sound (sound A or B); grab the speaker that is making sound and put it in the right box for sound A or the left box for sound B
+# In soundSim, sound A=sounds/0.wav, sound B=sounds/1.wav
 
-# m: マイクロフォンアレイ数 3-6
-# f: 更新頻度 Hz
-# s: 0-音情報なし 1-視覚+音環境マップ 2-視覚+音環境マップ+スペクトログラム 3-視覚+スペクトログラム
-# p: 0-そのまま 1-ガウシアンフィルタ 2-時間平滑 3-ガウシアン+時間平滑 4-特徴量変換
+# m: number of microphone arrays, 3-6
+# f: update frequency (Hz)
+# s: 0-no sound info 1-vision+sound map 2-vision+sound map+spectrogram 3-vision+spectrogram
+# p: 0-raw 1-Gaussian filter 2-temporal smoothing 3-Gaussian+temporal smoothing 4-feature transform

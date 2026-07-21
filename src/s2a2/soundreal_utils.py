@@ -3,7 +3,6 @@ import argparse
 import os
 import re
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -17,11 +16,7 @@ import sounddevice as sd
 import torch
 from pydub import AudioSegment
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-
-from env.tasks.sound_camera import SoundCamera, SoundConfig
+from s2a2.env.tasks.sound_camera import SoundCamera, SoundConfig
 
 SOUNDREAL_TASK_NAME = "soundReal-m4-f10-s2-p0"
 DEFAULT_SOUND_CONFIG = SoundConfig()
@@ -86,10 +81,10 @@ DEFAULT_CAMERA_CONFIGS = {
 
 SOUNDREAL_IMAGE_KEYS = ("front", "side", "sound0", "sound1", "spec")
 
-# 順序に意味はない。以下のコマンドで調べられる。
+# The order is arbitrary. It can be looked up with the command below.
 # uv run workspace/tamago_test.py --list-devices
 TAMAGO_DEVICE_IDS = [6, 7, 8, 9]
-# 右上のTAMAGOから時計回りに並べたときのhwインデックス
+# hw indices ordered clockwise starting from the top-right TAMAGO
 RECTANGLE_HW_ORDER_CLOCKWISE = [4, 5, 3, 2]
 
 AZIMUTH_OFFSET_DEG = 0.0

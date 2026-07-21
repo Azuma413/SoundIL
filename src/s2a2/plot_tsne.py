@@ -1,7 +1,6 @@
 import argparse
 import csv
 import os
-import sys
 from contextlib import ExitStack, nullcontext
 from copy import copy
 from pathlib import Path
@@ -23,17 +22,13 @@ from lerobot.policies.utils import prepare_observation_for_inference
 from lerobot.utils.constants import OBS_STR
 from lerobot.utils.utils import get_safe_torch_device
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-
-from src.eval_policy import (
+from s2a2.eval_policy import (
     fill_missing_image_observations,
     infer_dataset_name,
     infer_task_name,
     normalize_checkpoint_step,
 )
-from env.genesis_env import GenesisEnv
+from s2a2.env.genesis_env import GenesisEnv
 
 
 COLOR_BY_OPTIONS = ["sound_type", "sound_coordinate", "success", "episode_step"]

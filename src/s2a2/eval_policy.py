@@ -1,5 +1,4 @@
 import argparse
-import os
 from pathlib import Path
 import imageio
 import numpy as np
@@ -15,10 +14,8 @@ from lerobot.utils.control_utils import predict_action
 from lerobot.datasets.utils import build_dataset_frame
 from lerobot.utils.constants import OBS_STR
 from lerobot.utils.utils import get_safe_torch_device
-import sys
 import time
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from env.genesis_env import GenesisEnv
+from s2a2.env.genesis_env import GenesisEnv
 
 def process_image_for_video(image_array, target_height, target_width):
     """Process an image array for video recording, ensuring it's HWC, RGB, uint8."""
@@ -209,7 +206,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
     print("Policy Output Features:", policy.config.output_features)
     print("Environment Action Space:", env.action_space)
     success_num = 0
-    all_actions = []  # 全エピソードのactionを保存
+    all_actions = []  # Store actions from all episodes
     combined_video_h = observation_height * 2
     combined_video_w = observation_width * 2
     ep = 0
@@ -277,7 +274,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
                 
                 # Convert to numpy for environment
                 numpy_action = action_tensor.squeeze(0).cpu().numpy()
-                all_actions.append(numpy_action)  # actionを記録
+                all_actions.append(numpy_action)  # Record the action
                 numpy_observation, reward, terminated, truncated, info = env.step(numpy_action)
                 # print(f"Step: {step}, Reward: {reward:.4f}, Terminated: {terminated}, Truncated: {truncated}")
                 rewards.append(reward)
@@ -285,7 +282,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
                 frames.append(current_combined_frame)
                 done = terminated or truncated
                 step += 1
-                if reward > 0: # 成功したら早期終了
+                if reward > 0: # Early termination on success
                     done = True
             total_reward = sum(rewards)
             print(f"Evaluation finished after {step} steps. Total reward: {total_reward:.4f}")
@@ -343,7 +340,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
     success_rate = (success_num / episode_num) * 100
     print(f"Success rate: {success_num}/{episode_num} ({success_rate:.2f}%)")
     
-    # actionの統計情報を計算
+    # Compute action statistics
     action_stats = None
     if all_actions:
         all_actions_array = np.array(all_actions)  # shape: (total_steps, action_dim)
@@ -359,7 +356,7 @@ def main(training_name, observation_height, observation_width, episode_num, show
         print(f"  Mean: {action_stats['mean']}")
         print(f"  Std:  {action_stats['std']}")
     
-    # success_rate.txtに書き込み
+    # Write to success_rate.txt
     success_rate_file = output_directory / "success_rate.txt"
     with open(success_rate_file, "w") as f:
         f.write(f"Success rate: {success_num}/{episode_num} ({success_rate:.2f}%)\n")

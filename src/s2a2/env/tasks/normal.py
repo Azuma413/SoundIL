@@ -212,7 +212,7 @@ class NormalTask:
         return obs, reward, terminated, truncated, info
 
     def compute_reward(self, target=None, target_box=None, custom_pos=None):
-        # CubeがBoxの中にあるかどうかを判定
+        # Determine whether the cube is inside the box
         if custom_pos is not None:
             pos = custom_pos
         elif target is not None:
@@ -237,7 +237,7 @@ class NormalTask:
         if target_box is not None:
             box_pos = target_box.get_pos().cpu().numpy()
         elif self.use_two_boxes:
-            # デフォルトではどちらかの箱に入っていればOKとする（soundDiffでオーバーライド可能）
+            # By default, success if the cube is in either box (can be overridden by soundDiff)
             box_pos_l = self.box_left.get_pos().cpu().numpy()
             box_pos_r = self.box_right.get_pos().cpu().numpy()
             box_size = np.array([0.1, 0.1, 0.05])*self.box_scale
@@ -255,7 +255,7 @@ class NormalTask:
         else:
             box_pos = self.box.get_pos().cpu().numpy()
         
-        box_size = np.array([0.1, 0.1, 0.05])*self.box_scale  # Boxのサイズを取得
+        box_size = np.array([0.1, 0.1, 0.05])*self.box_scale  # Get the box size
         cube_in_box = (
             (box_pos[0] - box_size[0] / 2 <= pos[0] <= box_pos[0] + box_size[0] / 2) and
             (box_pos[1] - box_size[1] / 2 <= pos[1] <= box_pos[1] + box_size[1] / 2) and
@@ -265,10 +265,10 @@ class NormalTask:
         return reward
 
     def get_obs(self):
-        eef_pos = self.eef.get_pos().cpu().numpy() # 3次元
-        eef_rot = self.eef.get_quat().cpu().numpy() # 4次元
-        gripper = self.franka.get_dofs_position()[7:9].cpu().numpy() # 2次元
-        agent_pos = np.concatenate([eef_pos, eef_rot, gripper]) # 9次元
+        eef_pos = self.eef.get_pos().cpu().numpy() # 3D
+        eef_rot = self.eef.get_quat().cpu().numpy() # 4D
+        gripper = self.franka.get_dofs_position()[7:9].cpu().numpy() # 2D
+        agent_pos = np.concatenate([eef_pos, eef_rot, gripper]) # 9D
         front_pixels = self.front_cam.render()[0]
         assert front_pixels.ndim == 3, f"front_pixels shape {front_pixels.shape} is not 3D (H, W, 3)"
         side_pixels = self.side_cam.render()[0]
@@ -299,12 +299,12 @@ if __name__ == "__main__":
     for _ in range(10):
         action = np.random.uniform(-1.0, 1.0, size=(AGENT_DIM,))
         task.step(action)
-    # 最後の画像を保存
+    # Save the last image
     obs = task.get_obs()
     for key, value in obs.items():
         if key == "observation.state":
             continue
-        # rgbの入れ替え
+        # Swap RGB channels
         if value.shape[2] == 3:
             value = cv2.cvtColor(value, cv2.COLOR_RGB2BGR)
         print(f"{key}: {value.shape}")

@@ -22,7 +22,7 @@ from lerobot.robots.iloha import Iloha, IlohaConfig
 from lerobot.utils.control_utils import predict_action
 from lerobot.utils.utils import get_safe_torch_device, init_logging
 from lerobot.utils.visualization_utils import init_rerun, log_rerun_data
-from soundreal_utils import (
+from s2a2.soundreal_utils import (
     CAMERA_FPS,
     LoopingStereoPlayer,
     OBSERVATION_HEIGHT,
@@ -52,7 +52,7 @@ SOUND_SPEAKER_CHOICES = ("left", "right")
 
 
 async def reset_robot_to_home(robot: Iloha, init: bool = True) -> None:
-    print("ロボットを初期位置に戻しています...")
+    print("Resetting robot to home position...")
 
     home_action = make_full_action_from_right(
         np.asarray(robot.old_action[7:14], dtype=np.float32)
@@ -76,7 +76,7 @@ async def reset_robot_to_home(robot: Iloha, init: bool = True) -> None:
     await robot.async_send_action(home_action, use_relative=False, use_filter=False, use_unwrap=False)
     await asyncio.sleep(1.0)
 
-    print("初期位置復帰完了")
+    print("Home position restored")
 
 
 def make_eval_sound_episode_condition(
@@ -145,14 +145,14 @@ def append_sound_condition_csv(
 def prompt_episode_success(episode_number: int, total_episodes: int) -> bool:
     while True:
         result = input(
-            f"エピソード {episode_number}/{total_episodes} の結果を入力してください "
-            "(1: 成功, 2: 失敗): "
+            f"Enter the result for episode {episode_number}/{total_episodes} "
+            "(1: success, 2: failure): "
         ).strip()
         if result == "1":
             return True
         if result == "2":
             return False
-        print("無効な入力です。1（成功）または 2（失敗）を入力してください。")
+        print("Invalid input. Enter 1 (success) or 2 (failure).")
 
 
 def append_episode_success_csv(dataset_path: Path, result: dict) -> Path:
@@ -185,13 +185,13 @@ def initialize_cameras() -> dict:
         }
         cameras = make_cameras_from_configs(camera_configs)
         for name, camera in cameras.items():
-            print(f"{name} を接続中...")
+            print(f"Connecting to {name}...")
             camera.connect(warmup=True)
             time.sleep(0.5)
-        print(f"{len(cameras)}台のカメラを初期化しました")
+        print(f"Initialized {len(cameras)} camera(s)")
         return cameras
     except Exception as exc:
-        print(f"カメラ初期化エラー: {exc}")
+        print(f"Camera initialization error: {exc}")
         return {}
 
 
@@ -350,7 +350,7 @@ async def evaluation_loop(
     dataset: Optional[LeRobotDataset] = None,
     display_data: bool = False,
 ) -> int:
-    print(f"評価ループ開始（{episode_time_s}秒間）")
+    print(f"Starting evaluation loop ({episode_time_s}s)")
 
     frame_count = 0
     start_episode_t = time.perf_counter()
@@ -360,7 +360,7 @@ async def evaluation_loop(
         loop_start_t = time.perf_counter()
         elapsed = time.perf_counter() - start_episode_t
         if elapsed >= episode_time_s:
-            print(f"エピソード時間（{episode_time_s}秒）に達しました")
+            print(f"Reached episode time limit ({episode_time_s}s)")
             break
 
         obs = capture_soundreal_observation(robot, cameras, sound_source)
@@ -379,7 +379,7 @@ async def evaluation_loop(
             )
             right_action = policy_output_to_right_array(action_output)
         except Exception as exc:
-            print(f"アクション予測エラー: {exc}")
+            print(f"Action prediction error: {exc}")
             raise
 
         if first_action_time is None:
@@ -415,14 +415,14 @@ async def evaluation_loop(
 
         frame_count += 1
         if frame_count % CAMERA_FPS == 0:
-            print(f"フレーム: {frame_count}, 経過時間: {elapsed:.1f}秒")
+            print(f"Frame: {frame_count}, elapsed: {elapsed:.1f}s")
 
         dt_s = time.perf_counter() - loop_start_t
         sleep_duration = 1.0 / CAMERA_FPS - dt_s
         if sleep_duration > 0:
             await asyncio.sleep(sleep_duration)
 
-    print(f"評価ループ終了（合計{frame_count}フレーム）")
+    print(f"Evaluation loop finished ({frame_count} frames total)")
     return frame_count
 
 
@@ -480,7 +480,7 @@ async def main(args) -> None:
     robot_is_home = False
 
     print("=" * 60)
-    print("ロボットを初期化中...")
+    print("Initializing robot...")
     robot = Iloha(
         IlohaConfig(
             right_dynamixel_port="/dev/ttyUSB_RightDynamixel",
@@ -502,12 +502,12 @@ async def main(args) -> None:
     )
     try:
         await robot.connect()
-        print("ロボット接続完了")
+        print("Robot connected")
         await reset_robot_to_home(robot)
         robot_is_home = True
 
         print("=" * 60)
-        print("カメラを初期化中...")
+        print("Initializing cameras...")
         cameras = initialize_cameras()
         if not cameras:
             return
@@ -515,7 +515,7 @@ async def main(args) -> None:
 
         print("=" * 60)
         if needs_sound_observations:
-            print("音観測系を初期化中...")
+            print("Initializing sound observation pipeline...")
             sound_source = RealSoundObservationSource(
                 explicit_device_ids=parse_device_ids(args.input_device_ids),
                 observation_height=OBSERVATION_HEIGHT,
@@ -526,13 +526,13 @@ async def main(args) -> None:
             if not sound_source.wait_until_ready(timeout_s=5.0):
                 print("[soundreal] Audio buffers are still warming up. Initial frames may contain zeros.")
         else:
-            print("音観測を使わない policy/dataset のため、音観測系の初期化をスキップします")
+            print("Skipping sound observation setup: policy/dataset does not use sound observations")
         if not args.is_sound_shake:
             audio_player = LoopingStereoPlayer(output_device=args.output_device)
 
         if args.save_data:
             print("=" * 60)
-            print("評価データセット作成中...")
+            print("Creating evaluation dataset...")
             output_root = Path(args.output_root)
             output_root.mkdir(parents=True, exist_ok=True)
             dataset_num = get_next_dataset_number(output_root, EVAL_DATASET_PREFIX)
@@ -553,7 +553,7 @@ async def main(args) -> None:
             )
             video_encoding_manager = VideoEncodingManager(dataset)
             video_encoding_manager.__enter__()
-            print(f"データセット作成完了: {repo_id}")
+            print(f"Dataset created: {repo_id}")
 
         if args.display_data:
             init_rerun(session_name="iloha_soundreal_eval")
@@ -561,9 +561,9 @@ async def main(args) -> None:
         rng = np.random.default_rng(args.seed)
 
         print("=" * 60)
-        print(f"{args.num_episodes}エピソードの評価を開始します")
+        print(f"Starting evaluation over {args.num_episodes} episode(s)")
         for episode_idx in range(args.num_episodes):
-            print(f"\n--- エピソード {episode_idx + 1}/{args.num_episodes} ---")
+            print(f"\n--- Episode {episode_idx + 1}/{args.num_episodes} ---")
 
             policy.reset()
             preprocessor.reset()
@@ -626,10 +626,10 @@ async def main(args) -> None:
                             condition,
                             frame_count,
                         )
-                    print(f"エピソード {episode_idx + 1} を保存しました")
+                    print(f"Saved episode {episode_idx + 1}")
                 else:
                     dataset.clear_episode_buffer()
-                    print(f"エピソード {episode_idx + 1} は空だったため保存をスキップしました")
+                    print(f"Episode {episode_idx + 1} was empty; skipping save")
 
             await reset_robot_to_home(robot, init=False)
             robot_is_home = True
@@ -652,7 +652,7 @@ async def main(args) -> None:
                 result_dataset_path,
                 episode_success_result,
             )
-            print(f"エピソード成功判定をCSVに追記しました: {success_csv_path}")
+            print(f"Appended episode success result to CSV: {success_csv_path}")
 
             episode_success_total += 1
             episode_success_count += int(episode_success)
@@ -661,13 +661,13 @@ async def main(args) -> None:
             success_rate = episode_success_count / episode_success_total * 100.0
             print("=" * 60)
             print(
-                "成功率: "
+                "Success rate: "
                 f"{episode_success_count}/{episode_success_total} ({success_rate:.2f}%)"
             )
 
     finally:
         print("=" * 60)
-        print("クリーンアップ中...")
+        print("Cleaning up...")
 
         if audio_player is not None:
             audio_player.stop()
@@ -682,9 +682,9 @@ async def main(args) -> None:
         for name, camera in cameras.items():
             try:
                 camera.disconnect()
-                print(f"{name} を切断しました")
+                print(f"Disconnected {name}")
             except Exception as exc:
-                print(f"{name} 切断エラー: {exc}")
+                print(f"{name} disconnect error: {exc}")
 
         if robot is not None:
             if not robot_is_home:
@@ -692,77 +692,77 @@ async def main(args) -> None:
                     await reset_robot_to_home(robot, init=False)
                     robot_is_home = True
                 except Exception as exc:
-                    print(f"初期位置復帰エラー: {exc}")
+                    print(f"Home position reset error: {exc}")
             try:
                 await robot.disconnect()
-                print("ロボット切断完了")
+                print("Robot disconnected")
             except Exception as exc:
-                print(f"ロボット切断エラー: {exc}")
+                print(f"Robot disconnect error: {exc}")
         print("=" * 60)
-        print("評価スクリプト終了")
+        print("Evaluation script finished")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="soundReal 実機 Iloha Policy 評価")
-    parser.add_argument("--policy_path", type=str, required=True, help="学習済み policy のパス")
-    parser.add_argument("--dataset_path", type=str, required=True, help="正規化統計を使う dataset のパス")
-    parser.add_argument("--output_root", type=str, default="datasets", help="保存先ルート")
-    parser.add_argument("--save_data", action="store_true", help="評価時の観測と action を保存する")
-    parser.add_argument("--episode_time_s", type=float, default=60.0, help="1 エピソードの長さ（秒）")
-    parser.add_argument("--num_episodes", type=int, default=1, help="評価エピソード数")
-    parser.add_argument("--display_data", action="store_true", help="rerun で可視化する")
-    parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"], help="推論デバイス")
-    parser.add_argument("--seed", type=int, default=0, help="音条件サンプリング用 seed")
+    parser = argparse.ArgumentParser(description="soundReal real-robot Iloha policy evaluation")
+    parser.add_argument("--policy_path", type=str, required=True, help="Path to the trained policy")
+    parser.add_argument("--dataset_path", type=str, required=True, help="Path to the dataset used for normalization statistics")
+    parser.add_argument("--output_root", type=str, default="datasets", help="Root directory for outputs")
+    parser.add_argument("--save_data", action="store_true", help="Save observations and actions during evaluation")
+    parser.add_argument("--episode_time_s", type=float, default=60.0, help="Length of one episode (seconds)")
+    parser.add_argument("--num_episodes", type=int, default=1, help="Number of evaluation episodes")
+    parser.add_argument("--display_data", action="store_true", help="Visualize with rerun")
+    parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"], help="Inference device")
+    parser.add_argument("--seed", type=int, default=0, help="Seed for sound condition sampling")
     parser.add_argument(
         "--is-sound-shake",
         "--is_sound_shake",
         dest="is_sound_shake",
         action="store_true",
-        help="soundShake 評価として音声再生を無効化する",
+        help="Disable audio playback for soundShake evaluation",
     )
     parser.add_argument(
         "--sound_index",
         type=int,
         choices=sorted(SOUND_FILES.keys()),
         default=None,
-        help="鳴らす音の種類。未指定時はエピソードごとにランダム",
+        help="Sound to play. Random per episode if unspecified",
     )
     parser.add_argument(
         "--speaker",
         type=str,
         choices=SOUND_SPEAKER_CHOICES,
         default=None,
-        help="音を鳴らすスピーカー（left/right）。未指定時はエピソードごとにランダム",
+        help="Speaker to play the sound through (left/right). Random per episode if unspecified",
     )
     parser.add_argument(
         "--audio_preroll_s",
         type=float,
         default=0.5,
-        help="音再生開始から rollout 開始までの待機時間（秒）",
+        help="Wait time from playback start to rollout start (seconds)",
     )
     parser.add_argument(
         "--output_device",
         type=int,
         default=None,
-        help="sounddevice の出力デバイス ID。未指定時はデフォルト出力を使う",
+        help="sounddevice output device ID. Uses the default output if unspecified",
     )
     parser.add_argument(
         "--input_device_ids",
         type=str,
         default=None,
-        help="TAMAGO 入力デバイス ID をカンマ区切りで指定。未指定時は自動検出",
+        help="Comma-separated TAMAGO input device IDs. Auto-detected if unspecified",
     )
     parser.add_argument(
         "--remap-soundmap-channels",
         "--remap_soundmap_channels",
         action="store_true",
         default=True,
-        help="SoundMap チャンネルを右上から時計回りに G0,B0,R1,R0 へ入れ替える",
+        help="Remap SoundMap channels clockwise from top-right to G0,B0,R1,R0",
     )
     parser.add_argument(
         "--no-remap-soundmap-channels",
         dest="remap_soundmap_channels",
         action="store_false",
-        help="SoundMap チャンネルを入れ替えずに保存する",
+        help="Save SoundMap channels without remapping",
     )
     asyncio.run(main(parser.parse_args()))

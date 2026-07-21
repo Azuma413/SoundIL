@@ -22,58 +22,58 @@ REALTIME_NMF_MAX_MASK_RATIO = 0.2
 
 @dataclass
 class SoundConfig:
-    """音響シミュレーションとSoundMap生成の設定"""
-    # 画像サイズ
+    """Configuration for acoustic simulation and SoundMap generation"""
+    # Image size
     observation_height: int = 128
     observation_width: int = 128
-    # マイクロフォンアレイ関連
-    mic_array_num: int = 6 # マイクロフォンアレイの数
-    mic_array_radius: float = 0.3 # 円形に配置する場合のアレイの半径（メートル）
-    mics_per_array: int = 8 # 各アレイのマイク数
-    mic_radius: float = 0.035 # マイクロフォンアレイにおけるマイクの配列の半径（メートル）
-    # 音響シミュレーション関連
-    fs: int = 16000 # サンプリング周波数
-    nfft: int = 512 # FFT長
-    room_max_order: int = 3 # 反射の最大次数
-    sound_speed: float = 343.0 # 音速（m/s）
-    room_height: float = 3.0 # 部屋の高さ
-    # MUSIC法関連
-    music_num_src: int = 3 # 推定する音源数
-    # ピーク検出関連（ビームフォーミング用）
-    num_peaks: int = 1 # 検出するピーク数
-    gaussian_sigma: float = 1.0 # ガウシアンフィルタの強度
-    # ビームフォーミング関連
-    beamform_normalize: bool = True # ビームフォーミング出力の正規化
-    # スペクトログラム関連
-    use_spectrogram: bool = False # スペクトログラムを返すか
-    use_soundmap: bool = True # 音環境マップ（sound0, sound1）を返すか
-    nmf_components: int = 50 # NMFの成分数
-    nmf_threshold: float = 1.6e-3 # NMFマスクの閾値
+    # Microphone array settings
+    mic_array_num: int = 6 # Number of microphone arrays
+    mic_array_radius: float = 0.3 # Radius of the array circle when placed in a circle (meters)
+    mics_per_array: int = 8 # Number of mics per array
+    mic_radius: float = 0.035 # Radius of the mic layout within a microphone array (meters)
+    # Acoustic simulation settings
+    fs: int = 16000 # Sampling frequency
+    nfft: int = 512 # FFT length
+    room_max_order: int = 3 # Maximum reflection order
+    sound_speed: float = 343.0 # Speed of sound (m/s)
+    room_height: float = 3.0 # Room height
+    # MUSIC method settings
+    music_num_src: int = 3 # Number of sources to estimate
+    # Peak detection settings (for beamforming)
+    num_peaks: int = 1 # Number of peaks to detect
+    gaussian_sigma: float = 1.0 # Gaussian filter strength
+    # Beamforming settings
+    beamform_normalize: bool = True # Normalize beamforming output
+    # Spectrogram settings
+    use_spectrogram: bool = False # Whether to return the spectrogram
+    use_soundmap: bool = True # Whether to return the sound environment map (sound0, sound1)
+    nmf_components: int = 50 # Number of NMF components
+    nmf_threshold: float = 1.6e-3 # NMF mask threshold
     spectrogram_display_min_hz: float = 0.0
     spectrogram_display_max_hz: Optional[float] = 4000.0
     spectrogram_normalization: Literal["minmax", "percentile"] = "percentile"
-    # 画像処理オプション
-    use_gaussian_filter: bool = False # SoundMapにガウシアンフィルタ
-    use_temporal_smoothing: bool = False # 時間的平滑化
-    temporal_smoothing_weight: float = 0.5 # 時間的平滑化の重み
-    use_feature: bool = False # 特徴画像を生成
-    # 閾値
-    feature_threshold: float = 0.9 # 2値化の閾値
-    marker_size: int = 5 # マーカーのサイズ
-    # 音源ファイル関連
-    audio_file_path: Optional[str] = None # 音源ファイルのパス（Noneの場合はホワイトノイズ）
-    processing_time: float = 1.0 # シミュレーションで使用する音源の長さ（秒）
-    noise_intensity: float = 0.0 # ノイズ強度（マイク信号に加算するノイズの強度）
-    # Cubeの色
+    # Image processing options
+    use_gaussian_filter: bool = False # Apply Gaussian filter to SoundMap
+    use_temporal_smoothing: bool = False # Temporal smoothing
+    temporal_smoothing_weight: float = 0.5 # Temporal smoothing weight
+    use_feature: bool = False # Generate feature image
+    # Threshold
+    feature_threshold: float = 0.9 # Binarization threshold
+    marker_size: int = 5 # Marker size
+    # Source file settings
+    audio_file_path: Optional[str] = None # Path to source file (white noise if None)
+    processing_time: float = 1.0 # Length of source used in the simulation (seconds)
+    noise_intensity: float = 0.0 # Noise intensity (strength of noise added to mic signals)
+    # Cube color
     same_color: bool = True
-    update_freq: int = 5 # update_freq回呼び出されるごとに情報を更新
+    update_freq: int = 5 # Update info every update_freq calls
     # Shake mode
     shake_mode: bool = False
     velocity_threshold: float = 0.0005
     # Sound All mode
     sound_all_mode: bool = False
-    sound_all_moving_audio_path: Optional[str] = None  # 移動時に切り替える音源ファイルのパス
-    # 共通音観測処理の設定
+    sound_all_moving_audio_path: Optional[str] = None  # Path to the source file switched to when moving
+    # Common sound observation settings
     azimuth_offset_deg: float = 0.0
     doa_distance_floor_m: float = 10.0
     doa_distance_decay_exponent: float = 1.0
@@ -88,23 +88,23 @@ class SoundConfig:
     doa_frequency_normalization: bool = False
 
 class SoundCamera:
-    """音響シミュレーションとSoundMap生成を行うカメラクラス"""
-    
+    """Camera class that performs acoustic simulation and SoundMap generation"""
+
     def __init__(self, target, config: SoundConfig):
         self._target = None
         self.config = config
         self.elapsed_time = 0.0
         self.frames = []
-        # マイクロフォン位置の初期化
+        # Initialize microphone positions
         self.mic_positions = self._generate_default_mic_positions()
-        # 音声ファイルの読み込み
+        # Load audio file
         self.audio_signal = None
         self.moving_audio_signal = None
         self._nmf_state = None
         self._local_soundmap_grid = None
         if config.audio_file_path is not None:
             self._load_audio_file(config.audio_file_path)
-        # 時間的平滑化用の過去フレーム
+        # Past frame for temporal smoothing
         self.past_frame = None
         if config.use_temporal_smoothing:
             num_channels = 3 if config.use_feature else config.mic_array_num
@@ -112,26 +112,26 @@ class SoundCamera:
                 (config.observation_height, config.observation_width, num_channels),
                 dtype=np.float32
             ) * 127.5
-        # 更新頻度管理用
+        # Update frequency management
         self.call_count = 0
         self.cached_sound_map0 = None
         self.cached_sound_map1 = None
         self.cached_spectrogram = None
-        
-        # 速度計算用
+
+        # For velocity computation
         self.prev_pos = None
         self.prev_time = None
 
-        # 信号バッファリング用
+        # For signal buffering
         self.required_length = int(config.fs * config.processing_time)
         self.signal_buffer = np.zeros(self.required_length, dtype=np.float32)
         self.audio_cursor = 0
-        
-        # 速度履歴 (shake_mode/sound_all_mode用)
-        # (velocity, num_samples) のリスト
+
+        # Velocity history (for shake_mode/sound_all_mode)
+        # List of (velocity, num_samples)
         self.velocity_history = []
-        
-        # sound_all_mode用：移動時の音源信号
+
+        # For sound_all_mode: source signal used when moving
         self.moving_audio_cursor = 0
         if config.sound_all_mode and config.sound_all_moving_audio_path is not None:
             self._load_moving_audio_file(config.sound_all_moving_audio_path)
@@ -164,7 +164,7 @@ class SoundCamera:
         self._nmf_state = None
 
     def get_target_velocity(self) -> float:
-        """ターゲットの速度を計算"""
+        """Compute the target's velocity"""
         current_pos = self.target.get_pos()
         if isinstance(current_pos, torch.Tensor):
             current_pos = current_pos.cpu().numpy()
@@ -189,12 +189,12 @@ class SoundCamera:
         return velocity
     
     def _load_audio_file(self, audio_file_path: str):
-        """音声ファイルを読み込む（WAV、MP3など）"""
+        """Load an audio file (WAV, MP3, etc.)"""
         format = audio_file_path.split(".")[-1]
         sound = AudioSegment.from_file(audio_file_path, format=format)
         sound = sound.set_frame_rate(self.config.fs).set_channels(1)
         signal = np.array(sound.get_array_of_samples())
-        # 正規化 (-1.0 ~ 1.0)
+        # Normalize (-1.0 ~ 1.0)
         if signal.dtype != np.float32:
             signal = signal.astype(np.float32)
         if np.abs(signal).max() > 0:
@@ -203,7 +203,7 @@ class SoundCamera:
         self.audio_cursor = 0
 
     def _load_moving_audio_file(self, audio_file_path: str):
-        """移動時の音声ファイルを読み込む（sound_all_mode用）"""
+        """Load the audio file used when moving (for sound_all_mode)"""
         format = audio_file_path.split(".")[-1]
         sound = AudioSegment.from_file(audio_file_path, format=format)
         sound = sound.set_frame_rate(self.config.fs).set_channels(1)
@@ -215,12 +215,12 @@ class SoundCamera:
         self.moving_audio_signal = signal
 
     def set_moving_audio(self, audio_file_path: str):
-        """移動時の音源を動的に変更する（sound_all_mode用）"""
+        """Dynamically change the source used when moving (for sound_all_mode)"""
         self._load_moving_audio_file(audio_file_path)
         self.moving_audio_cursor = 0
 
     def _get_audio_chunk(self, n_samples: int) -> np.ndarray:
-        """音声ファイルから指定サンプル数を取得（ループ再生）"""
+        """Get the specified number of samples from the audio file (looped playback)"""
         if self.audio_signal is None:
             return np.random.randn(n_samples).astype(np.float32)
         
@@ -241,14 +241,14 @@ class SoundCamera:
         return chunk
 
     def _update_state(self, dt: float, velocity: float):
-        """状態更新（信号バッファと速度履歴）"""
+        """Update state (signal buffer and velocity history)"""
         self.elapsed_time += dt
-        # 経過時間分のサンプル数
+        # Number of samples for the elapsed time
         n_samples = int(dt * self.config.fs)
         if n_samples == 0:
             return
 
-        # 1. 新しい音源チャンクを取得
+        # 1. Get a new source chunk
         new_chunk = self._get_audio_chunk(n_samples)
         # Create a new buffer by concatenating new_chunk and the previous buffer (minus last n_samples)
         if n_samples >= self.required_length:
@@ -262,7 +262,7 @@ class SoundCamera:
         self.signal_buffer[n_samples:] = self.signal_buffer[:-n_samples]
         self.signal_buffer[:n_samples] = new_chunk[::-1] # Store time-reversed new chunk?
 
-        # 3. 速度履歴の更新
+        # 3. Update velocity history
         self.velocity_history.insert(0, (velocity, n_samples))
         total_samples = 0
         valid_history = []
@@ -274,7 +274,7 @@ class SoundCamera:
         self.velocity_history = valid_history
     
     def _generate_default_mic_positions(self) -> List[List[float]]:
-        """デフォルトのマイクロフォン位置を生成（10x10x3の部屋用）"""
+        """Generate default microphone positions (for a 10x10x3 room)"""
         positions = []
         for i in range(self.config.mic_array_num):
             theta = np.pi * (4*i - self.config.mic_array_num - 3) / (2 * self.config.mic_array_num)
@@ -285,17 +285,17 @@ class SoundCamera:
     
     def render(self) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
         """
-        SoundMapとスペクトログラムを生成
+        Generate SoundMap and spectrogram
         Returns:
-            sound_map0: (height, width, 3) の画像 (uint8) - チャンネル0-2
-            sound_map1: (height, width, 3) の画像 (uint8) - チャンネル3-5
-            spectrogram: (height, width, 3) の画像 (uint8) or None
+            sound_map0: (height, width, 3) image (uint8) - channels 0-2
+            sound_map1: (height, width, 3) image (uint8) - channels 3-5
+            spectrogram: (height, width, 3) image (uint8) or None
         """
-        # 更新頻度のチェック
+        # Check update frequency
         should_update = (self.call_count % self.config.update_freq == 0)
         self.call_count += 1
-        
-        # 状態更新 (常に実行)
+
+        # Update state (always run)
         last_time = self.prev_time
         velocity = self.get_target_velocity()
         
@@ -310,7 +310,7 @@ class SoundCamera:
         signal_to_process = self.signal_buffer.copy()
         zero_flag = False
         if self.config.shake_mode:
-            # マスク作成
+            # Create mask
             mask = np.zeros_like(signal_to_process)
             silent_time = 2.0
             if self.elapsed_time >= silent_time:
@@ -331,8 +331,8 @@ class SoundCamera:
                 signal_to_process += np.random.randn(*signal_to_process.shape) * 1e-5
                 zero_flag = True
         elif self.config.sound_all_mode and self.moving_audio_signal is not None:
-            # sound_all_mode: 速度に応じて静止時(音A)と移動時(音B/C)を切り替え
-            # 移動時の音源チャンクを生成
+            # sound_all_mode: switch between stationary (sound A) and moving (sound B/C) based on velocity
+            # Generate the source chunk for moving
             moving_chunk = np.zeros_like(signal_to_process)
             n_total = len(moving_chunk)
             cursor = self.moving_audio_cursor
@@ -346,8 +346,8 @@ class SoundCamera:
                 cursor = (cursor + take) % total_len
                 idx += take
             
-            # 速度に基づくブレンド：移動中は移動時音源、静止時は元の音源
-            # 開始直後のsilent_time中は音を切り替えない
+            # Velocity-based blend: moving source while moving, original source while stationary
+            # Do not switch sound during silent_time right after start
             blend_mask = np.zeros(n_total, dtype=np.float32)
             silent_time = 2.0
             if self.elapsed_time >= silent_time:
@@ -360,12 +360,12 @@ class SoundCamera:
                         blend_mask[current_idx:end_idx] = 1.0
                     current_idx = end_idx
             
-            # 移動部分は移動時音源、静止部分は元の音源
+            # Moving portions use the moving source, stationary portions use the original source
             signal_to_process = signal_to_process * (1.0 - blend_mask) + moving_chunk * blend_mask
         signal_for_simulation = signal_to_process[::-1]
         if not should_update and self.cached_sound_map0 is not None:
             return self.cached_sound_map0, self.cached_sound_map1, self.cached_spectrogram
-        # 音源位置の取得
+        # Get source position
         sound_pos = self.target.get_pos()
         if isinstance(sound_pos, torch.Tensor):
             sound_pos = sound_pos.cpu().numpy()
@@ -375,7 +375,7 @@ class SoundCamera:
         music_results = []
         
         if self.config.mic_array_num > 0:
-            # シミュレーション実行 (signalを渡す)
+            # Run simulation (pass signal)
             mic_signals_list, music_results = self._simulate_all_arrays(sound_pos, signal_for_simulation, zero_flag)
             
             for i in range(self.config.mic_array_num):
@@ -386,7 +386,7 @@ class SoundCamera:
                 sound_maps.append(sound_map)
         if not sound_maps:
             print("Warning: All sound simulations failed or mic_array_num=0. Returning zero array.")
-            # 常に3チャンネルのゼロ画像を2つ返す
+            # Always return two 3-channel zero images
             sound_map_image = np.zeros(
                 (self.config.observation_height, self.config.observation_width, 3),
                 dtype=np.uint8
@@ -395,35 +395,35 @@ class SoundCamera:
             # sound_map0, sound_map1, spectrogram
             return sound_map_image, sound_map_image, None 
         sound_map_array = np.array(sound_maps).transpose(1, 2, 0)
-        # ガウシアンフィルタの適用
+        # Apply Gaussian filter
         if self.config.use_gaussian_filter:
             for i in range(sound_map_array.shape[2]):
                 sound_map_array[:, :, i] = gaussian_filter(
                     sound_map_array[:, :, i],
                     sigma=self.config.gaussian_sigma
                 )
-        # 特徴画像への変換
+        # Convert to feature image
         if self.config.use_feature:
             sound_map_array = self._convert_to_feature_image(sound_map_array)
         sound_map_array = self._normalize_to_uint8(sound_map_array)
-        # 時間的平滑化
+        # Temporal smoothing
         if self.config.use_temporal_smoothing:
             sound_map_array = self._apply_temporal_smoothing(sound_map_array)
-        # チャンネルを2つの3チャンネル画像に分割
+        # Split channels into two 3-channel images
         sound_map0 = self._split_channels(sound_map_array, 0, 3)
         sound_map1 = self._split_channels(sound_map_array, 3, 6)
         self.frames.append(sound_map_array)
-        # スペクトログラム生成
+        # Generate spectrogram
         spectrogram = None
         if self.config.use_spectrogram:
             spectrogram = self._generate_spectrogram(
-                sound_maps, # ここは個別のマップのリスト (M, H, W)
+                sound_maps, # This is a list of individual maps (M, H, W)
                 mic_signals_list,
             )
             if spectrogram is not None:
                 spectrogram = self._pad_to_3ch(spectrogram)
-        
-        # 生成した画像をキャッシュに保存
+
+        # Cache the generated images
         self.cached_sound_map0 = sound_map0
         self.cached_sound_map1 = sound_map1
         self.cached_spectrogram = spectrogram
@@ -437,10 +437,10 @@ class SoundCamera:
         zero_flag: bool = False
     ) -> Tuple[List[np.ndarray], List[pra.doa.MUSIC]]:
         """
-        すべてのマイクアレイを1つの部屋でシミュレーション
+        Simulate all microphone arrays in a single room
         Returns:
-            mic_signals_list: 各マイクアレイの信号リスト
-            music_results: 各マイクアレイのMUSIC結果リスト
+            mic_signals_list: list of signals for each microphone array
+            music_results: list of MUSIC results for each microphone array
         """
         room_dim = [10, 10, self.config.room_height]
         room = pra.ShoeBox(room_dim, fs=self.config.fs, max_order=self.config.room_max_order)
@@ -453,7 +453,7 @@ class SoundCamera:
             )
             room.add_microphone_array(mic_array_positions)
         
-        # 信号を設定
+        # Set the signal
         room.sources[0].signal = signal
         room.simulate()
         mic_signals_list = []
@@ -481,7 +481,7 @@ class SoundCamera:
         num_mics: int,
         radius: float
     ) -> np.ndarray:
-        """円形マイクアレイの位置を生成"""
+        """Generate positions for a circular microphone array"""
         angles = np.linspace(0, 2 * np.pi, num_mics, endpoint=False)
         x = center[0] + radius * np.cos(angles)
         y = center[1] + radius * np.sin(angles)
@@ -498,7 +498,7 @@ class SoundCamera:
         distance_floor_m: Optional[float] = None,
         distance_decay_exponent: Optional[float] = None,
     ) -> np.ndarray:
-        """DOA推定結果からSoundMapを生成"""
+        """Generate a SoundMap from DOA estimation results"""
         spec = self._get_doa_spectrum(doa)
         azimuth_offset_deg = self.config.azimuth_offset_deg if azimuth_offset_deg is None else azimuth_offset_deg
         distance_floor_m = self.config.doa_distance_floor_m if distance_floor_m is None else distance_floor_m
@@ -591,7 +591,7 @@ class SoundCamera:
     
     def _convert_to_feature_image(self, sound_map: np.ndarray) -> np.ndarray:
         """
-        SoundMapを特徴画像に変換
+        Convert a SoundMap to a feature image
         Args:
             sound_map: (height, width, mic_array_num)
         Returns:
@@ -612,7 +612,7 @@ class SoundCamera:
         return feature_image
     
     def _normalize_to_uint8(self, array: np.ndarray) -> np.ndarray:
-        """配列を0-255のuint8にスケーリング"""
+        """Scale the array to uint8 in the range 0-255"""
         array_normalized = np.zeros_like(array, dtype=np.float32)
         for i in range(array.shape[2]):
             channel = array[:, :, i]
@@ -625,12 +625,12 @@ class SoundCamera:
         return np.clip(array_normalized, 0, 255).astype(np.uint8)
     
     def _apply_temporal_smoothing(self, current_frame: np.ndarray) -> np.ndarray:
-        """時間的平滑化を適用"""
+        """Apply temporal smoothing"""
         if self.past_frame is None:
             self.past_frame = current_frame.astype(np.float32)
             return current_frame
         current_normalized = current_frame.astype(np.float32) / 255.0
-        # 重み付き平均
+        # Weighted average
         weight = self.config.temporal_smoothing_weight
         self.past_frame = self.past_frame * (1 - weight) + current_normalized * weight * 255
         self.past_frame = np.clip(self.past_frame, 0, 255)
@@ -638,7 +638,7 @@ class SoundCamera:
 
     def _perform_spotforming_nmf(
         self,
-        beamformed_signals, # ある1つの音源に対する全アレイのビームフォーミング結果 (M, N_samples)
+        beamformed_signals, # Beamforming results from all arrays for one source (M, N_samples)
         fs,
         n_components,
         threshold=0.01,
@@ -646,7 +646,7 @@ class SoundCamera:
         noverlap=256
     ):
         """
-        論文のセクションIII-B に記載のNMFベースのスポットフォーミングを実行する
+        Perform the NMF-based spotforming described in Section III-B of the paper
         """
         M = len(beamformed_signals)
         all_amp_specs = []
@@ -681,7 +681,7 @@ class SoundCamera:
         reconstructed_wavs = []
         for m in range(M):
             H_m = split_H[m]      # H_i^(m)
-            phase_m = all_phases[m] # 位相
+            phase_m = all_phases[m] # Phase
             reconstructed_amp_spec = W @ (H_m * binary_mask)
             reconstructed_complex_spec = reconstructed_amp_spec * np.exp(1j * phase_m)
             _, wav_m = istft(reconstructed_complex_spec, fs=fs, nperseg=nfft, noverlap=noverlap)
@@ -694,7 +694,7 @@ class SoundCamera:
             else:
                 padded_wavs.append(w)
         final_wav = np.mean(np.stack(padded_wavs, axis=0), axis=0)
-        return final_wav, f_stft, t_stft # f_stft, t_stft はNMFの結果のものを返す（が、ここでは使わない）
+        return final_wav, f_stft, t_stft # Return f_stft, t_stft from the NMF result (unused here)
 
     def _fit_realtime_nmf(
         self,
@@ -757,12 +757,12 @@ class SoundCamera:
 
     def _generate_spectrogram(
         self,
-        sound_maps: List[np.ndarray], # (M, H, W) のリスト
+        sound_maps: List[np.ndarray], # List of (M, H, W)
         mic_signals_list: List[Optional[np.ndarray]],
     ) -> Optional[np.ndarray]:
         """
-        NMFベースのスポットフォーミングを実行し、
-        分離された音源のスペクトログラムを画像化して返す
+        Perform NMF-based spotforming and return the separated source's
+        spectrogram rendered as an image
         """
         combined_map = self.build_combined_sound_map(
             sound_maps,
@@ -788,11 +788,11 @@ class SoundCamera:
 
     def _convert_spectrogram_to_image(self, spec_db: np.ndarray) -> np.ndarray:
         """
-        スペクトログラムを画像化（observation_height x observation_widthにリサイズ）
+        Render the spectrogram as an image (resized to observation_height x observation_width)
         Args:
-            spec_db: 対数スケールのスペクトログラム (周波数ビン数, 時間フレーム数)
+            spec_db: log-scale spectrogram (num frequency bins, num time frames)
         Returns:
-            spectrogram_image: (observation_height, observation_width) の画像 (uint8)
+            spectrogram_image: (observation_height, observation_width) image (uint8)
         """
         if self.config.spectrogram_normalization == "minmax":
             min_val = np.min(spec_db)
@@ -821,7 +821,7 @@ class SoundCamera:
         data: np.ndarray,
         k: int
     ) -> List[Tuple[float, float]]:
-        """2Dデータから上位k個のピークを検出（実空間座標で返す）"""
+        """Detect the top-k peaks in 2D data (returned in real-space coordinates)"""
         is_peak = np.ones_like(data, dtype=bool)
         for dr in [-1, 0, 1]:
             for dc in [-1, 0, 1]:
@@ -1071,11 +1071,11 @@ class SoundCamera:
     
     def _pixel_to_azimuth(
         self,
-        x: float, # 実空間座標 x
-        y: float, # 実空間座標 y
+        x: float, # real-space coordinate x
+        y: float, # real-space coordinate y
         mic_center: List[float]
     ) -> float:
-        """実空間座標から方位角（度）を計算（test.pyに合わせた方式）"""
+        """Compute the azimuth (degrees) from real-space coordinates (matching test.py's approach)"""
         dx = x - mic_center[0]
         dy = y - mic_center[1]
         angle_rad = np.arctan2(dy, dx)
@@ -1088,7 +1088,7 @@ class SoundCamera:
         azimuth_deg: float,
         elevation_deg: float = 0.0
     ) -> np.ndarray:
-        """DSビームフォーミング"""
+        """Delay-and-sum beamforming"""
         if mic_signals.shape[0] < mic_signals.shape[1]:
             y_multi = mic_signals.T
         else:
@@ -1109,7 +1109,7 @@ class SoundCamera:
         azimuth_deg: float,
         elevation_deg: float
     ) -> np.ndarray:
-        """方位角と仰角から単位ベクトルを生成"""
+        """Generate a unit vector from azimuth and elevation"""
         az = np.deg2rad(azimuth_deg)
         el = np.deg2rad(elevation_deg)
         u = np.array([
@@ -1125,10 +1125,10 @@ class SoundCamera:
         mic_positions: np.ndarray,
         doa_unitvec: np.ndarray
     ) -> np.ndarray:
-        """ステアリングベクトルを計算"""
-        # 各マイクの幾何遅延
+        """Compute the steering vector"""
+        # Geometric delay for each mic
         taus = -(mic_positions @ doa_unitvec) / self.config.sound_speed
-        # 位相項
+        # Phase term
         phase = -2j * np.pi * freqs[:, None] * taus[None, :]
         return np.exp(phase)
     
@@ -1139,18 +1139,18 @@ class SoundCamera:
         end_ch: int
     ) -> np.ndarray:
         """
-        配列から指定範囲のチャンネルを抽出し、3チャンネルにゼロ埋め
+        Extract the specified channel range from the array and zero-pad to 3 channels
         Args:
-            array: (height, width, channels) の画像
-            start_ch: 開始チャンネル
-            end_ch: 終了チャンネル（含まない）
+            array: (height, width, channels) image
+            start_ch: start channel
+            end_ch: end channel (exclusive)
         Returns:
-            result: (height, width, 3) の画像（不足分はゼロ埋め）
+            result: (height, width, 3) image (missing channels zero-padded)
         """
         height, width, total_channels = array.shape
         result = np.zeros((height, width, 3), dtype=array.dtype)
         available_channels = min(end_ch, total_channels) - start_ch
-        available_channels = max(0, available_channels)  # 負の値を防ぐ
+        available_channels = max(0, available_channels)  # Prevent negative values
         for i in range(min(available_channels, 3)):
             if start_ch + i < total_channels:
                 result[:, :, i] = array[:, :, start_ch + i]
@@ -1158,9 +1158,9 @@ class SoundCamera:
     
     def _pad_to_3ch(self, array: np.ndarray) -> np.ndarray:
         """
-        2D配列または1/2チャンネル配列を3チャンネルにゼロ埋め
+        Zero-pad a 2D array or 1/2-channel array to 3 channels
         Args:
-            array: (height, width) または (height, width, 1) または (height, width, 2)
+            array: (height, width) or (height, width, 1) or (height, width, 2)
         Returns:
             result: (height, width, 3)
         """

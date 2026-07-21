@@ -1,9 +1,9 @@
 import gymnasium as gym
 import warnings
 import re
-from env.tasks.normal import NormalTask
-from env.tasks.sound import SoundTask
-from env.tasks.sound_camera import SoundConfig
+from s2a2.env.tasks.normal import NormalTask
+from s2a2.env.tasks.sound import SoundTask
+from s2a2.env.tasks.sound_camera import SoundConfig
 
 
 def build_sound_config_from_task(task, use_legacy_sound_config=False):
@@ -83,7 +83,7 @@ class GenesisEnv(gym.Env):
         self.observation_width = observation_width
         self.show_viewer = show_viewer
         self.render_mode = render_mode
-        self.sound_config = sound_config  # sound_configを保存
+        self.sound_config = sound_config  # Save sound_config
         self.use_legacy_sound_config = use_legacy_sound_config
         self._env = self._make_env_task(sound_config)
         self.observation_space = self._env.observation_space
@@ -95,27 +95,27 @@ class GenesisEnv(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        # エピソード回数をインクリメント
+        # Increment episode counter
         self.episode_count += 1
-        # reset_freqの倍数回に達したらメモリ開放とリセット
+        # Free memory and reset every reset_freq episodes
         if self.episode_count % self.reset_freq == 0:
-            # 現在の環境をクローズ
+            # Close the current environment
             self.close()
-            # 新しい環境を作成（sound_configを渡す）
+            # Create a new environment (passing sound_config)
             self._env = self._make_env_task(self.sound_config)
             self.observation_space = self._env.observation_space
             self.action_space = self._env.action_space
         if seed is not None:
             self._env.seed(seed)
-        # resetは obs, info を返す
+        # reset returns obs, info
         self.step_count = 0
         observation, info = self._env.reset(options=options)
-        # infoに is_success を追加 (初期値はFalse)
+        # Add is_success to info (initial value False)
         info["is_success"] = False
         return observation, info
 
     def step(self, action):
-        # stepは obs, reward, terminated, truncated, info を返す
+        # step returns obs, reward, terminated, truncated, info
         observation, reward, terminated, truncated, info = self._env.step(action)
         is_success = (reward == 1.0)
         info["is_success"] = is_success
