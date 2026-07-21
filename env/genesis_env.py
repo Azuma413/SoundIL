@@ -44,16 +44,25 @@ def build_sound_config_from_task(task, use_legacy_sound_config=False):
     elif p == 4:
         use_feature = True
 
-    # Parse noise/spectrogram-mode suffix: -noN (with noise) or -nxN (no noise)
+    # Parse noise/spectrogram-mode suffix: -noN (noise source) or -nxN (no noise)
+    # Optional -nsX selects sounds/X.wav as the noise source. Without -ns, white noise is used.
     # Default (no suffix): no noise, Spotforming (nx0)
     mode_match = re.search(r"-(no|nx)(\d+)", task)
+    noise_source_path = None
     if mode_match:
         noise_type = mode_match.group(1)
         spectrogram_mode = int(mode_match.group(2))
-        noise_intensity = 0.3 if noise_type == "no" else 0.0
+        noise_intensity = 0.1 if noise_type == "no" else 0.0
     else:
         noise_intensity = 0.0
         spectrogram_mode = 0
+
+    noise_source_match = re.search(r"-ns([A-Za-z0-9_.]+)", task)
+    if noise_source_match:
+        noise_source_name = noise_source_match.group(1)
+        if not noise_source_name.endswith(".wav"):
+            noise_source_name = f"{noise_source_name}.wav"
+        noise_source_path = f"sounds/{noise_source_name}"
 
     config_kwargs = {
         "mic_array_num": mic_array_num,
@@ -65,6 +74,7 @@ def build_sound_config_from_task(task, use_legacy_sound_config=False):
         "use_feature": use_feature,
         "audio_file_path": "sounds/1.wav",
         "noise_intensity": noise_intensity,
+        "noise_source_path": noise_source_path,
         "spectrogram_mode": spectrogram_mode,
     }
     if use_legacy_sound_config:

@@ -322,8 +322,8 @@ if __name__ == "__main__":
     
     task_candidates = [
         "soundDiff-m4-f10-s2-p0-no0",
-        # "soundDiff-m4-f10-s2-p0-no1",
-        # "soundDiff-m4-f10-s2-p0-no2",
+        "soundDiff-m4-f10-s2-p0-no1",
+        "soundDiff-m4-f10-s2-p0-no2",
     ]
     
     for task in task_candidates:
@@ -341,7 +341,7 @@ if __name__ == "__main__":
         sound_config = None 
         
         main(
-            episode_num=1,
+            episode_num=50,
             task=task,
             stage_dict=stage_dict,
             observation_height=224,
@@ -366,13 +366,14 @@ if __name__ == "__main__":
 # p: 0-そのまま 1-ガウシアンフィルタ 2-時間平滑 3-ガウシアン+時間平滑 4-特徴量変換
 #
 # 末尾の音処理オプション（省略時はノイズ無し・Spotforming）:
-#   no0: ノイズ有り + Spotforming
-#   no1: ノイズ有り + 単一マイク（先頭マイク信号をそのままスペクトログラム化）
-#   no2: ノイズ有り + 単純平均（全マイク信号の平均をスペクトログラム化）
+#   no0: ノイズ音源有り + Spotforming
+#   no1: ノイズ音源有り + 単一マイク（先頭マイク信号をそのままスペクトログラム化）
+#   no2: ノイズ音源有り + 単純平均（全マイク信号の平均をスペクトログラム化）
 #   nx0: ノイズ無し + Spotforming
 #   nx1: ノイズ無し + 単一マイク
 #   nx2: ノイズ無し + 単純平均
-# ノイズはRMSスケールの加算性白色雑音（noise_intensity=0.3、SNR約10dB相当）
-# 例: "sound-m4-f10-s2-p0-no1" → ノイズ有り・単一マイクのスペクトログラム
+# ノイズはepisode内固定で、作業空間中心から半径 noise_source_radius m の円周上に置く追加音源として伝搬させる
+# noise_source_path=None ならホワイトノイズ、"-ns2" のように付けると sounds/2.wav をノイズ音源に使う
+# 例: "sound-m4-f10-s2-p0-no1-ns2" → sounds/2.wavノイズ音源有り・単一マイクのスペクトログラム
 
 # soundSim-m4-f10-s2-p0-no0

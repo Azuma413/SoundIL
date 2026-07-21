@@ -63,7 +63,10 @@ class SoundConfig:
     # 音源ファイル関連
     audio_file_path: Optional[str] = None # 音源ファイルのパス（Noneの場合はホワイトノイズ）
     processing_time: float = 1.0 # シミュレーションで使用する音源の長さ（秒）
-    noise_intensity: float = 0.0 # ノイズ強度（マイク信号に加算するノイズの強度）
+    noise_intensity: float = 0.0 # ノイズ音源の強度（主音源RMSに対する倍率）
+    noise_source_path: Optional[str] = None # ノイズ音源ファイルのパス（Noneの場合はホワイトノイズ）
+    noise_source_radius: float = 2.0 # 作業空間中心からノイズ音源を置く円の半径（メートル）
+    noise_source_height: float = 0.1 # ノイズ音源の高さ（メートル）
     # Cubeの色
     same_color: bool = True
     update_freq: int = 5 # update_freq回呼び出されるごとに情報を更新
@@ -102,10 +105,14 @@ class SoundCamera:
         # 音声ファイルの読み込み
         self.audio_signal = None
         self.moving_audio_signal = None
+        self.noise_audio_signal = None
+        self.noise_source_position = None
         self._nmf_state = None
         self._local_soundmap_grid = None
         if config.audio_file_path is not None:
             self._load_audio_file(config.audio_file_path)
+        if config.noise_source_path is not None:
+            self._load_noise_audio_file(config.noise_source_path)
         # 時間的平滑化用の過去フレーム
         self.past_frame = None
         if config.use_temporal_smoothing:
@@ -128,6 +135,7 @@ class SoundCamera:
         self.required_length = int(config.fs * config.processing_time)
         self.signal_buffer = np.zeros(self.required_length, dtype=np.float32)
         self.audio_cursor = 0
+        self.noise_audio_cursor = 0
         
         # 速度履歴 (shake_mode/sound_all_mode用)
         # (velocity, num_samples) のリスト
@@ -155,11 +163,13 @@ class SoundCamera:
         self.elapsed_time = 0.0
         self.signal_buffer = np.zeros(self.required_length, dtype=np.float32)
         self.audio_cursor = 0
+        self.noise_audio_cursor = 0
         self.moving_audio_cursor = 0
         self.call_count = 0
         self.cached_sound_map0 = None
         self.cached_sound_map1 = None
         self.cached_spectrogram = None
+        self.noise_source_position = None
         self.reset_nmf_state()
 
     def reset_nmf_state(self):
@@ -216,6 +226,19 @@ class SoundCamera:
             signal = signal / np.abs(signal).max()
         self.moving_audio_signal = signal
 
+    def _load_noise_audio_file(self, audio_file_path: str):
+        """ノイズ音源として使う音声ファイルを読み込む"""
+        format = audio_file_path.split(".")[-1]
+        sound = AudioSegment.from_file(audio_file_path, format=format)
+        sound = sound.set_frame_rate(self.config.fs).set_channels(1)
+        signal = np.array(sound.get_array_of_samples())
+        if signal.dtype != np.float32:
+            signal = signal.astype(np.float32)
+        if np.abs(signal).max() > 0:
+            signal = signal / np.abs(signal).max()
+        self.noise_audio_signal = signal
+        self.noise_audio_cursor = 0
+
     def set_moving_audio(self, audio_file_path: str):
         """移動時の音源を動的に変更する（sound_all_mode用）"""
         self._load_moving_audio_file(audio_file_path)
@@ -240,6 +263,29 @@ class SoundCamera:
             self.audio_cursor = (self.audio_cursor + take) % total_len
             current_idx += take
             
+        return chunk
+
+    def _get_noise_chunk(self, n_samples: int) -> np.ndarray:
+        """ノイズ音源チャンクを取得（未指定時はホワイトノイズ）"""
+        if self.noise_audio_signal is None:
+            return np.random.randn(n_samples).astype(np.float32)
+
+        chunk = np.zeros(n_samples, dtype=np.float32)
+        total_len = len(self.noise_audio_signal)
+        current_idx = 0
+
+        while current_idx < n_samples:
+            remaining = n_samples - current_idx
+            available = total_len - self.noise_audio_cursor
+
+            take = min(remaining, available)
+            chunk[current_idx:current_idx+take] = self.noise_audio_signal[
+                self.noise_audio_cursor:self.noise_audio_cursor+take
+            ]
+
+            self.noise_audio_cursor = (self.noise_audio_cursor + take) % total_len
+            current_idx += take
+
         return chunk
 
     def _update_state(self, dt: float, velocity: float):
@@ -278,6 +324,41 @@ class SoundCamera:
             y = 5.0 + self.config.mic_array_radius * np.sin(theta)
             positions.append([x, y, 0.1])
         return positions
+
+    def _sample_noise_source_position(self, room_dim: List[float]) -> np.ndarray:
+        """作業空間中心の周囲に、壁から離してノイズ音源を配置する"""
+        margin = max(self.config.mic_radius, 0.05)
+        if self.mic_positions:
+            center_xy = np.mean(np.asarray(self.mic_positions, dtype=np.float32)[:, :2], axis=0)
+        else:
+            center_xy = np.array([room_dim[0] / 2.0, room_dim[1] / 2.0], dtype=np.float32)
+
+        max_radius = min(
+            center_xy[0] - margin,
+            room_dim[0] - center_xy[0] - margin,
+            center_xy[1] - margin,
+            room_dim[1] - center_xy[1] - margin,
+        )
+        radius = min(float(self.config.noise_source_radius), max(0.0, float(max_radius)))
+        theta = np.random.uniform(0.0, 2.0 * np.pi)
+        xy = center_xy + radius * np.array([np.cos(theta), np.sin(theta)], dtype=np.float32)
+        z = np.clip(float(self.config.noise_source_height), margin, room_dim[2] - margin)
+        return np.array([xy[0], xy[1], z], dtype=np.float32)
+
+    def _get_noise_source_position(self, room_dim: List[float]) -> np.ndarray:
+        """episode内で固定されたノイズ音源位置を返す"""
+        if self.noise_source_position is None:
+            self.noise_source_position = self._sample_noise_source_position(room_dim)
+        return self.noise_source_position
+
+    def _make_noise_source_signal(self, reference_signal: np.ndarray) -> np.ndarray:
+        """主音源RMSに対して noise_intensity 倍のRMSを持つノイズ音源を作る"""
+        noise = self._get_noise_chunk(len(reference_signal)).astype(np.float32)
+        ref_rms = np.sqrt(np.mean(reference_signal ** 2))
+        noise_rms = np.sqrt(np.mean(noise ** 2))
+        if ref_rms == 0.0 or noise_rms == 0.0:
+            return np.zeros_like(reference_signal, dtype=np.float32)
+        return noise * (ref_rms * self.config.noise_intensity / noise_rms)
     
     def render(self) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray]]:
         """
@@ -440,7 +521,12 @@ class SoundCamera:
         """
         room_dim = [10, 10, self.config.room_height]
         room = pra.ShoeBox(room_dim, fs=self.config.fs, max_order=self.config.room_max_order)
-        room.add_source(sound_pos)
+        room.add_source(sound_pos, signal=signal)
+        if self.config.noise_intensity > 0:
+            noise_pos = self._get_noise_source_position(room_dim)
+            noise_signal = self._make_noise_source_signal(signal)
+            room.add_source(noise_pos, signal=noise_signal)
+
         for i in range(self.config.mic_array_num):
             mic_array_positions = self._generate_circular_array(
                 self.mic_positions[i],
@@ -448,19 +534,13 @@ class SoundCamera:
                 self.config.mic_radius
             )
             room.add_microphone_array(mic_array_positions)
-        
-        # 信号を設定
-        room.sources[0].signal = signal
+
         room.simulate()
         mic_signals_list = []
         for i in range(self.config.mic_array_num):
             start_idx = i * self.config.mics_per_array
             end_idx = (i + 1) * self.config.mics_per_array
             signals = room.mic_array.signals[start_idx:end_idx]
-            if self.config.noise_intensity > 0:
-                rms = np.sqrt(np.mean(signals ** 2))
-                noise = np.random.randn(*signals.shape) * rms * self.config.noise_intensity
-                signals = signals + noise
             mic_signals_list.append(signals)
         if zero_flag:
             doa_mic_signals_list = [np.zeros_like(signals) for signals in mic_signals_list]
