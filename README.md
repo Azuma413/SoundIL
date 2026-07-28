@@ -139,7 +139,7 @@ The two submodules are mandatory — `libs/lerobot` and `libs/Genesis` are insta
 local packages, so `uv sync` fails if they are empty.
 
 ```bash
-git clone -b open --recurse-submodules https://github.com/Azuma413/SoundIL.git
+git clone --recurse-submodules https://github.com/Azuma413/SoundIL.git
 cd SoundIL
 ```
 
