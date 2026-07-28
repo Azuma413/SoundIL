@@ -57,6 +57,20 @@ def build_sound_config_from_task(task, use_legacy_sound_config=False):
         noise_intensity = 0.0
         spectrogram_mode = 0
 
+    # -ni<float> でノイズ強度を明示的に上書き（OOD評価用）例: -ni0.5
+    intensity_match = re.search(r"-ni(\d+(?:\.\d+)?)", task)
+    if intensity_match:
+        noise_intensity = float(intensity_match.group(1))
+
+    # -nopp でノイズ音源に「逆側のタスク音」を使用（soundDiff/soundSim用）
+    noise_use_opposite_sound = "-nopp" in task
+
+    # -nd<float> でノイズ音源の配置半径[m]を上書き（距離スイープ用）例: -nd4.0
+    noise_radius_match = re.search(r"-nd(\d+(?:\.\d+)?)", task)
+    noise_source_radius = (
+        float(noise_radius_match.group(1)) if noise_radius_match else 2.0
+    )
+
     noise_source_match = re.search(r"-ns([A-Za-z0-9_.]+)", task)
     if noise_source_match:
         noise_source_name = noise_source_match.group(1)
@@ -75,6 +89,8 @@ def build_sound_config_from_task(task, use_legacy_sound_config=False):
         "audio_file_path": "sounds/1.wav",
         "noise_intensity": noise_intensity,
         "noise_source_path": noise_source_path,
+        "noise_use_opposite_sound": noise_use_opposite_sound,
+        "noise_source_radius": noise_source_radius,
         "spectrogram_mode": spectrogram_mode,
     }
     if use_legacy_sound_config:

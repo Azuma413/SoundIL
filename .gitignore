@@ -14,3 +14,7 @@ old_outputs/
 .codex
 .edit_dataset_cache/
 *.zip
+.claude/
+workspace/logs/
+workspace/spotforming_verify*
+workspace/*.png

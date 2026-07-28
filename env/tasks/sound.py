@@ -132,7 +132,15 @@ class SoundTask(NormalTask):
                 shape=(self.observation_height, self.observation_width, 3),
                 dtype=np.uint8
             )
-        
+            # 全モード生成時はmode1(単一マイク)/mode2(平均)のスペクトログラムも追加
+            if self.sound_config.spectrogram_all_modes:
+                for key in ["spec1", "spec2"]:
+                    obs_space_dict[f"observation.images.{key}"] = spaces.Box(
+                        low=0, high=255,
+                        shape=(self.observation_height, self.observation_width, 3),
+                        dtype=np.uint8
+                    )
+
         return spaces.Dict(obs_space_dict)
     
     def reset(self, options=None):
@@ -182,7 +190,10 @@ class SoundTask(NormalTask):
                 # 音Bの設定
                 self.sound_cam._load_audio_file(SOUND_DIFF_B_PATH)
                 self.target_box = self.box_left # 音Bなら左の箱
-            
+            if self.sound_config.noise_use_opposite_sound:
+                opposite_path = SOUND_DIFF_B_PATH if sound_type == "A" else SOUND_A_PATH
+                self.sound_cam._load_noise_audio_file(opposite_path)
+
             # タスク記述更新用
             self.current_sound_type = sound_type
 
@@ -257,6 +268,9 @@ class SoundTask(NormalTask):
             else:
                 self.sound_cam._load_audio_file(SOUND_B_PATH)
                 self.target_box = self.box_left
+            if self.sound_config.noise_use_opposite_sound:
+                opposite_path = SOUND_B_PATH if sound_type == "A" else SOUND_A_PATH
+                self.sound_cam._load_noise_audio_file(opposite_path)
 
             self.current_sound_type = sound_type
         
@@ -296,11 +310,26 @@ class SoundTask(NormalTask):
         
         # use_spectrogramがTrueの場合、specを追加（3チャンネル）
         if self.sound_config.use_spectrogram:
-            assert spectrogram is not None, "Spectrogram is None despite use_spectrogram=True"
-            assert spectrogram.ndim == 3 and spectrogram.shape[2] == 3, \
-                f"spectrogram shape {spectrogram.shape} is not (H, W, 3)"
-            obs["observation.images.spec"] = spectrogram
-        
+            zero_img = np.zeros(
+                (self.observation_height, self.observation_width, 3), dtype=np.uint8
+            )
+            if self.sound_config.spectrogram_all_modes:
+                all_specs = self.sound_cam.last_all_spectrograms or {}
+                base_mode = self.sound_config.spectrogram_mode
+                spec = all_specs.get(base_mode)
+                obs["observation.images.spec"] = spec if spec is not None else zero_img
+                obs["observation.images.spec1"] = (
+                    all_specs.get(1) if all_specs.get(1) is not None else zero_img
+                )
+                obs["observation.images.spec2"] = (
+                    all_specs.get(2) if all_specs.get(2) is not None else zero_img
+                )
+            else:
+                assert spectrogram is not None, "Spectrogram is None despite use_spectrogram=True"
+                assert spectrogram.ndim == 3 and spectrogram.shape[2] == 3, \
+                    f"spectrogram shape {spectrogram.shape} is not (H, W, 3)"
+                obs["observation.images.spec"] = spectrogram
+
         return obs
     
     def get_task_description(self):

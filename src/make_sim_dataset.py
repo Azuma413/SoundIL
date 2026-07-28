@@ -173,8 +173,8 @@ def expert_policy(env, stage, target_cube_name=None):
     action = np.concatenate([qpos_arm, grip])
     return action.astype(np.float32)
 
-def initialize_dataset(env: GenesisEnv) -> LeRobotDataset:
-    task = env.task
+def initialize_dataset(env: GenesisEnv, dataset_task_name=None) -> LeRobotDataset:
+    task = dataset_task_name or env.task
     height = env.observation_height
     width = env.observation_width
     dict_idx = 0
@@ -185,6 +185,10 @@ def initialize_dataset(env: GenesisEnv) -> LeRobotDataset:
     # env.observation_spaceの内容に基づいてfeaturesを定義
     features = {"action": {"dtype": "float32", "shape": (AGENT_DIM,), "names": joints_name}}
     for key, space in env.observation_space.spaces.items():
+        # 全モード同時生成用の補助キーはデータセットには含めない
+        # （各データセットの"spec"キーに対応モードの画像を書き込む）
+        if key in ["observation.images.spec1", "observation.images.spec2"]:
+            continue
         if key == "observation.state":
             states_name = [
                 "eef_pos_x", "eef_pos_y", "eef_pos_z",
@@ -216,7 +220,19 @@ def main(
     show_viewer=False,
     sound_config=None,
     use_legacy_sound_config=True,
+    all_modes=False,
 ):
+    if all_modes:
+        # 1回のシミュレーションで3種類の音処理（Spotforming/単一マイク/平均）の
+        # データセットを同時に作る。taskはmode0のタスク名（例: ...-no0）を指定する。
+        import re
+        from env.genesis_env import build_sound_config_from_task
+        assert re.search(r"-(no|nx)0", task), f"all_modes requires a mode-0 task name: {task}"
+        sound_config = build_sound_config_from_task(
+            task, use_legacy_sound_config=use_legacy_sound_config
+        )
+        sound_config.spectrogram_all_modes = True
+
     env = GenesisEnv(
         task=task,
         observation_height=observation_height,
@@ -225,7 +241,20 @@ def main(
         sound_config=sound_config,
         use_legacy_sound_config=use_legacy_sound_config,
     )
-    dataset = initialize_dataset(env)
+    if all_modes:
+        import re
+        # mode m のデータセット名は taskのモード数字を置換したもの
+        dataset_names = [re.sub(r"-(no|nx)0", lambda mt: f"-{mt.group(1)}{m}", task) for m in range(3)]
+        datasets = [initialize_dataset(env, dataset_task_name=n) for n in dataset_names]
+        spec_source_keys = [
+            "observation.images.spec",   # mode0
+            "observation.images.spec1",  # mode1
+            "observation.images.spec2",  # mode2
+        ]
+    else:
+        datasets = [initialize_dataset(env)]
+        spec_source_keys = ["observation.images.spec"]
+    dataset = datasets[0]
     episode_configs = build_balanced_episode_configs(task, episode_num)
     ep = 0
     while ep < episode_num:
@@ -293,14 +322,21 @@ def main(
                 continue
             print(f"✅ Saving episode {ep+1}")
             ep += 1
-            for i in range(len(obs_dict["action"])):
-                obs = {"task": env.get_task_description()}
-                for key in obs_dict.keys():
-                    if key.startswith("observation.images") and isinstance(obs_dict[key][i], Image.Image):
-                        obs_dict[key][i] = np.array(obs_dict[key][i])
-                    obs[key] = obs_dict[key][i]
-                dataset.add_frame(obs)
-            dataset.save_episode()
+            for m, ds in enumerate(datasets):
+                spec_key = spec_source_keys[m]
+                for i in range(len(obs_dict["action"])):
+                    obs = {"task": env.get_task_description()}
+                    for key in obs_dict.keys():
+                        if key in ["observation.images.spec1", "observation.images.spec2"]:
+                            continue
+                        value = obs_dict[key][i]
+                        if key == "observation.images.spec":
+                            value = obs_dict[spec_key][i]
+                        if key.startswith("observation.images") and isinstance(value, Image.Image):
+                            value = np.array(value)
+                        obs[key] = value
+                    ds.add_frame(obs)
+                ds.save_episode()
         except Exception as e:
             print(f"⚠️ Error occurred during episode {ep+1}: {e}")
             print("🔄 Retrying episode...")
@@ -316,17 +352,28 @@ def main(
             continue
     env.close()
 if __name__ == "__main__":
+    import argparse
+
     # datasetを作成したいタスクを指定
     # task = "soundShake-m3-fx-so" # "sound-m3-fx-sx" "normal"
     # 新フォーマット例: soundShake-m4-f6-s2-p4
-    
-    task_candidates = [
+
+    default_tasks = [
         "soundDiff-m4-f10-s2-p0-no0",
         "soundDiff-m4-f10-s2-p0-no1",
         "soundDiff-m4-f10-s2-p0-no2",
     ]
-    
-    for task in task_candidates:
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("tasks", nargs="*", default=default_tasks,
+                        help="生成するタスク名（省略時は従来のデフォルトリスト）")
+    parser.add_argument("--episode-num", type=int, default=50)
+    parser.add_argument("--all-modes", action="store_true",
+                        help="1回のシミュレーションでmode0/1/2の3データセットを同時生成"
+                             "（タスク名はmode0のもの、例: soundDiff-m4-f10-s2-p0-no0）")
+    args = parser.parse_args()
+
+    for task in args.tasks:
         stage_dict = {
             "hover": 100, # cubeの上に手を持っていく
             "stabilize": 40, # cubeの上で手を安定させる
@@ -341,7 +388,7 @@ if __name__ == "__main__":
         sound_config = None 
         
         main(
-            episode_num=50,
+            episode_num=args.episode_num,
             task=task,
             stage_dict=stage_dict,
             observation_height=224,
@@ -349,6 +396,7 @@ if __name__ == "__main__":
             show_viewer=False,
             sound_config=sound_config,
             use_legacy_sound_config=True,
+            all_modes=args.all_modes,
         )
 
 

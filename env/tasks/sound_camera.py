@@ -65,6 +65,7 @@ class SoundConfig:
     processing_time: float = 1.0 # シミュレーションで使用する音源の長さ（秒）
     noise_intensity: float = 0.0 # ノイズ音源の強度（主音源RMSに対する倍率）
     noise_source_path: Optional[str] = None # ノイズ音源ファイルのパス（Noneの場合はホワイトノイズ）
+    noise_use_opposite_sound: bool = False # ノイズ音源として「逆側のタスク音」を再生（soundDiff/soundSim用）
     noise_source_radius: float = 2.0 # 作業空間中心からノイズ音源を置く円の半径（メートル）
     noise_source_height: float = 0.1 # ノイズ音源の高さ（メートル）
     # Cubeの色
@@ -91,6 +92,9 @@ class SoundConfig:
     doa_frequency_normalization: bool = False
     # スペクトログラム生成モード: 0-Spotforming, 1-単一マイク, 2-単純平均
     spectrogram_mode: int = 0
+    # Trueなら全モード(0,1,2)のスペクトログラムを毎フレーム生成して保持する
+    # （1回のシミュレーションで3種類のデータセットを作るためのモード）
+    spectrogram_all_modes: bool = False
 
 class SoundCamera:
     """音響シミュレーションとSoundMap生成を行うカメラクラス"""
@@ -126,7 +130,8 @@ class SoundCamera:
         self.cached_sound_map0 = None
         self.cached_sound_map1 = None
         self.cached_spectrogram = None
-        
+        self.last_all_spectrograms = None  # spectrogram_all_modes用 {mode: (H,W,3) or None}
+
         # 速度計算用
         self.prev_pos = None
         self.prev_time = None
@@ -169,6 +174,7 @@ class SoundCamera:
         self.cached_sound_map0 = None
         self.cached_sound_map1 = None
         self.cached_spectrogram = None
+        self.last_all_spectrograms = None
         self.noise_source_position = None
         self.reset_nmf_state()
 
@@ -493,12 +499,23 @@ class SoundCamera:
         # スペクトログラム生成
         spectrogram = None
         if self.config.use_spectrogram:
-            spectrogram = self._generate_spectrogram(
-                sound_maps, # ここは個別のマップのリスト (M, H, W)
-                mic_signals_list,
-            )
-            if spectrogram is not None:
-                spectrogram = self._pad_to_3ch(spectrogram)
+            if self.config.spectrogram_all_modes:
+                all_specs = {}
+                orig_mode = self.config.spectrogram_mode
+                for m in (0, 1, 2):
+                    self.config.spectrogram_mode = m
+                    img = self._generate_spectrogram(sound_maps, mic_signals_list)
+                    all_specs[m] = self._pad_to_3ch(img) if img is not None else None
+                self.config.spectrogram_mode = orig_mode
+                self.last_all_spectrograms = all_specs
+                spectrogram = all_specs.get(orig_mode)
+            else:
+                spectrogram = self._generate_spectrogram(
+                    sound_maps, # ここは個別のマップのリスト (M, H, W)
+                    mic_signals_list,
+                )
+                if spectrogram is not None:
+                    spectrogram = self._pad_to_3ch(spectrogram)
         
         # 生成した画像をキャッシュに保存
         self.cached_sound_map0 = sound_map0
@@ -916,12 +933,12 @@ class SoundCamera:
         )
         return resized
     
-    def _find_top_k_peaks(
+    def _find_top_k_peak_indices(
         self,
         data: np.ndarray,
         k: int
-    ) -> List[Tuple[float, float]]:
-        """2Dデータから上位k個のピークを検出（実空間座標で返す）"""
+    ) -> List[Tuple[int, int]]:
+        """2Dデータから上位k個のピークを検出（ピクセル座標(row, col)で返す）"""
         is_peak = np.ones_like(data, dtype=bool)
         for dr in [-1, 0, 1]:
             for dc in [-1, 0, 1]:
@@ -944,9 +961,24 @@ class SoundCamera:
         peak_values = data[peak_rows, peak_cols]
         sorted_indices = np.argsort(peak_values)[::-1]
         top_k_indices = sorted_indices[:min(k, len(sorted_indices))]
+        return [(int(peak_rows[i]), int(peak_cols[i])) for i in top_k_indices]
+
+    def _find_top_k_peaks(
+        self,
+        data: np.ndarray,
+        k: int
+    ) -> List[Tuple[float, float]]:
+        """2Dデータから上位k個のピークを検出（旧仕様: 部屋全体10mスケールの座標で返す）
+
+        注意: render()経由の局所マップ(2*mic_array_radius四方)に対しては座標系が
+        一致しないため使用しないこと。互換のため残している。
+        """
         room_size = 10.0
         map_scale = self.config.observation_height / room_size
-        return [(peak_rows[i] / map_scale, peak_cols[i] / map_scale) for i in top_k_indices]
+        return [
+            (row / map_scale, col / map_scale)
+            for row, col in self._find_top_k_peak_indices(data, k)
+        ]
 
     def estimate_music(
         self,
@@ -1018,7 +1050,24 @@ class SoundCamera:
         topk = self.config.num_peaks if topk is None else topk
         selection_mode = self.config.peak_selection_mode if selection_mode is None else selection_mode
         if selection_mode == "local_max":
-            return self._find_top_k_peaks(combined_sound_map, topk)
+            peak_indices = self._find_top_k_peak_indices(combined_sound_map, topk)
+            if x_coords is None or y_coords is None:
+                # render()経由: マップは_get_local_soundmap_gridの局所座標系
+                # (一辺 2*mic_array_radius, indexing="ij"で axis0=x, axis1=y)。
+                # ピクセル→局所座標→部屋座標に変換して返す。
+                map_scale = self.config.observation_height / (2 * self.config.mic_array_radius)
+                offset = 5.0 - self.config.mic_array_radius
+                return [
+                    (row / map_scale + offset, col / map_scale + offset)
+                    for row, col in peak_indices
+                ]
+            # 明示座標指定時 (indexing="xy"で axis0=y, axis1=x)
+            row_coords = np.asarray(y_coords, dtype=np.float32)
+            col_coords = np.asarray(x_coords, dtype=np.float32)
+            return [
+                (float(col_coords[col]), float(row_coords[row]))
+                for row, col in peak_indices
+            ]
 
         flat = combined_sound_map.ravel()
         if flat.size == 0 or topk <= 0:
