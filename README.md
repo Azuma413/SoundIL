@@ -1,5 +1,11 @@
 # S2A2: Audio-Visual Imitation Learning for Manipulation Tasks Using Acoustic Spatial Information
 
+<p align="center">
+  🌐 <a href="https://azuma413.github.io/projects/s2a2"><b>Project Page</b></a>
+  &nbsp;|&nbsp;
+  📄 <a href="https://arxiv.org/abs/2607.26047"><b>Paper (arXiv)</b></a>
+</p>
+
 S2A2 is a research codebase for studying imitation learning policies that use acoustic spatial
 cues in addition to visual observations. The project extends LeRobot-based policy training with
 simulated and real robot manipulation tasks in which sound can identify the relevant object,
@@ -470,16 +476,16 @@ This project is released under the MIT License. See [LICENSE](LICENSE) for the f
 
 ## Citation
 
-The accompanying paper has not been published yet. Citation information will be added here once it
-is available. In the meantime, if you use this codebase, please cite it as follows (placeholder —
-details to be updated):
+If you find this work useful, please cite:
 
 ```bibtex
-@misc{s2a2,
-  title        = {S2A2: Audio-Visual Imitation Learning for Manipulation Tasks Using Acoustic Spatial Information},
-  author       = {TBD},
-  year         = {2026},
-  howpublished = {\url{https://github.com/Azuma413/SoundIL}},
-  note         = {Paper not yet published; citation to be updated.}
+@misc{hiratsuka2026s2a2audiovisualimitationlearning,
+      title={S2A2: Audio-Visual Imitation Learning for Manipulation Tasks Using Acoustic Spatial Information}, 
+      author={Kaneyoshi Hiratsuka and Benjamin Yen and Ryosuke Kojima},
+      year={2026},
+      eprint={2607.26047},
+      archivePrefix={arXiv},
+      primaryClass={cs.RO},
+      url={https://arxiv.org/abs/2607.26047}, 
 }
 ```
