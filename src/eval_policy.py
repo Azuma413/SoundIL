@@ -20,6 +20,34 @@ import time
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from env.genesis_env import GenesisEnv
 
+# --- 観測前処理をGPU側で行うための差し替え ---------------------------------
+# lerobot の prepare_observation_for_inference は、画像を「CPUでfloat32化・255除算・
+# permute+contiguousコピー」してから .to(device) している。
+# ACT評価は n_action_steps=1 なので全タイムステップでこれが走り、カメラ5枚分の
+# CPU処理が評価時間の大半を占めていた（実測 630 ms/step）。
+# 先にGPUへ転送してから同じ変換を行うと 0.23 ms/step になる。演算内容は同一。
+def _prepare_observation_for_inference_on_device(observation, device, task=None, robot_type=None):
+    for name in observation:
+        tensor = torch.from_numpy(observation[name]).to(device, non_blocking=True)
+        if "image" in name:
+            tensor = tensor.type(torch.float32) / 255
+            tensor = tensor.permute(2, 0, 1).contiguous()
+        observation[name] = tensor.unsqueeze(0)
+
+    observation["task"] = task if task else ""
+    observation["robot_type"] = robot_type if robot_type else ""
+    return observation
+
+
+# predict_action は control_utils モジュール名前空間の関数を参照するため、
+# lerobot 本体には手を入れずここで差し替える。
+import lerobot.utils.control_utils as _lerobot_control_utils  # noqa: E402
+
+_lerobot_control_utils.prepare_observation_for_inference = (
+    _prepare_observation_for_inference_on_device
+)
+# ---------------------------------------------------------------------------
+
 def process_image_for_video(image_array, target_height, target_width):
     """Process an image array for video recording, ensuring it's HWC, RGB, uint8."""
     if image_array is None:

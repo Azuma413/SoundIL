@@ -18,3 +18,4 @@ old_outputs/
 workspace/logs/
 workspace/spotforming_verify*
 workspace/*.png
+noise_exp/logs/

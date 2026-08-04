@@ -305,8 +305,16 @@ class DatasetProcessor:
         return output_name
 
 if __name__ == "__main__":
-    input_path = "datasets/soundShake-m4-f10-s2-p0_0"
-    target_list = ["soundShake-m4-f10-s0-p0", "soundShake-m4-f10-s1-p0", "soundShake-m4-f10-s3-p0"]
+    input_path = "datasets/soundRealAll-m4-f10-s2-p0"
+    target_list = ["soundRealAll-m4-f10-s1-p0", "soundRealAll-m4-f10-s3-p0"]
+
+    for target in target_list:
+        processor = DatasetProcessor(input_path, target)
+        out_path = processor.process()
+        print(f"Dataset processing complete. Saved to {out_path}")
+
+    input_path = "datasets/soundRealShake-m4-f10-s2-p0"
+    target_list = ["soundRealShake-m4-f10-s1-p0", "soundRealShake-m4-f10-s3-p0"]
 
     for target in target_list:
         processor = DatasetProcessor(input_path, target)
