@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from serial.tools import list_ports
 
 from lerobot.cameras import make_cameras_from_configs
 from lerobot.cameras.realsense.configuration_realsense import RealSenseCameraConfig
@@ -16,9 +17,12 @@ from lerobot.configs.policies import PreTrainedConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import build_dataset_frame
 from lerobot.datasets.video_utils import VideoEncodingManager
-from lerobot.policies.act.modeling_act import ACTTemporalEnsembler
 from lerobot.policies.factory import make_policy, make_pre_post_processors
 from lerobot.robots.iloha import Iloha, IlohaConfig
+from lerobot.robots.iloha.iloha_controller.robstride.src.robstride import (
+    RobStride,
+    RobStrideController,
+)
 from lerobot.utils.control_utils import predict_action
 from lerobot.utils.utils import get_safe_torch_device, init_logging
 from lerobot.utils.visualization_utils import init_rerun, log_rerun_data
@@ -51,28 +55,78 @@ SUPPORTED_POLICY_TYPES = {"act", "diffusion"}
 SOUND_SPEAKER_CHOICES = ("left", "right")
 
 
+def _resolved_device_path(device: str) -> Path:
+    return Path(device).resolve(strict=False)
+
+
+async def detect_robstride_port(
+    motor_id: int,
+    excluded_ports: set[Path],
+) -> str:
+    candidates = sorted(
+        port.device
+        for port in list_ports.comports()
+        if _resolved_device_path(port.device) not in excluded_ports
+    )
+    if not candidates:
+        raise RuntimeError("RobStride候補のシリアルポートが見つかりません")
+
+    for candidate in candidates:
+        probe = RobStrideController(
+            port=candidate,
+            motors=[RobStride(id=motor_id, offset=0.0)],
+        )
+        try:
+            if await probe.connect():
+                return candidate
+        finally:
+            await probe.disconnect()
+
+    raise RuntimeError(
+        f"RobStride motor ID {motor_id} に応答するシリアルポートが"
+        f"見つかりませんでした（候補: {candidates}）"
+    )
+
+
+async def resolve_auto_robstride_ports(config: IlohaConfig) -> None:
+    excluded_ports = {
+        _resolved_device_path(config.right_dynamixel_port),
+        _resolved_device_path(config.left_dynamixel_port),
+    }
+
+    arm_specs = (
+        ("right", config.enable_right_arm, 4),
+        ("left", config.enable_left_arm, 1),
+    )
+    for arm, enabled, probe_motor_id in arm_specs:
+        if not enabled:
+            continue
+
+        attribute = f"{arm}_robstride_port"
+        configured_port = getattr(config, attribute)
+        if configured_port != "auto":
+            excluded_ports.add(_resolved_device_path(configured_port))
+            continue
+
+        detected_port = await detect_robstride_port(probe_motor_id, excluded_ports)
+        setattr(config, attribute, detected_port)
+        excluded_ports.add(_resolved_device_path(detected_port))
+        print(f"{arm} RobStrideポートを自動検出しました: {detected_port}")
+
+
 async def reset_robot_to_home(robot: Iloha, init: bool = True) -> None:
     print("ロボットを初期位置に戻しています...")
 
-    home_action = make_full_action_from_right(
-        np.asarray(robot.old_action[7:14], dtype=np.float32)
-    )
-    if not init:
-        right_home = np.asarray(robot.old_action[7:14], dtype=np.float32).copy()
-        right_home[0] = 0.0
-        right_home[1] = -np.pi / 6
-        right_home[2] = -np.pi / 6
-        home_action = make_full_action_from_right(right_home)
-        await robot.async_send_action(home_action, use_relative=False, use_filter=False, use_unwrap=False)
-        await asyncio.sleep(1.0)
-
-    right_home = np.asarray(home_action[7:14], dtype=np.float32).copy()
-    right_home[3:7] = 0.0
-    home_action = make_full_action_from_right(right_home)
+    # Keep the current RobStride targets for the first command.  In particular,
+    # replacing a negative motor target with zero immediately can make a
+    # multi-turn motor take the long route to the origin on startup.
+    home_action = np.asarray(robot.old_action, dtype=np.float32).copy()
+    home_action[3:7] = 0.0
+    home_action[10:14] = 0.0
     await robot.async_send_action(home_action, use_relative=False, use_filter=False, use_unwrap=False)
     await asyncio.sleep(2.0)
 
-    home_action = make_full_action_from_right(np.zeros(RIGHT_ARM_DIM, dtype=np.float32))
+    home_action = np.zeros_like(home_action)
     await robot.async_send_action(home_action, use_relative=False, use_filter=False, use_unwrap=False)
     await asyncio.sleep(1.0)
 
@@ -485,25 +539,24 @@ async def main(args) -> None:
 
     print("=" * 60)
     print("ロボットを初期化中...")
-    robot = Iloha(
-        IlohaConfig(
-            right_dynamixel_port="/dev/ttyUSB_RightDynamixel",
-            right_robstride_port="/dev/ttyUSB0",
-            left_robstride_port="/dev/ttyUSB1",
-            left_dynamixel_port="/dev/ttyUSB_LeftDynamixel",
-            enable_left_arm=False,
-            enable_right_arm=True,
-            max_relative_target_1=0.03,
-            max_relative_target_2=0.01,
-            max_relative_target_3=0.01,
-            max_relative_target_4=0.03,
-            max_relative_target_5=0.01,
-            max_relative_target_6=0.03,
-            current_limit_gripper_R=0.2 if args.is_sound_shake else 0.3,
-            current_limit_gripper_L=0.3,
-        ),
-        debug=False,
+    robot_config = IlohaConfig(
+        right_dynamixel_port="/dev/ttyUSB_RightDynamixel",
+        right_robstride_port="auto",
+        left_robstride_port="auto",
+        left_dynamixel_port="/dev/ttyUSB_LeftDynamixel",
+        enable_left_arm=False,
+        enable_right_arm=True,
+        max_relative_target_1=0.03,
+        max_relative_target_2=0.01,
+        max_relative_target_3=0.01,
+        max_relative_target_4=0.03,
+        max_relative_target_5=0.01,
+        max_relative_target_6=0.03,
+        current_limit_gripper_R=0.2 if args.is_sound_shake else 0.3,
+        current_limit_gripper_L=0.3,
     )
+    await resolve_auto_robstride_ports(robot_config)
+    robot = Iloha(robot_config, debug=False)
     try:
         await robot.connect()
         print("ロボット接続完了")
