@@ -94,6 +94,33 @@ actionとstateを元に戻す．
 uv run shift_action_state.py -5 soundRealAll-edited -o soundRealAll-edited-as
 ```
 ## 実機評価
+### Iloha の画像ベースキャリブレーション
+
+最初に、参照姿勢と移動範囲を実機を動かさず確認する。
+
+```bash
+uv run iloha_calib.py --dry-run
+```
+
+カメラ位置と作業環境をデータ収集時と同じ状態にし、非常停止手段とロボットの周囲を確認してから実行する。
+既定では `datasets/soundRealAll-m4-f10-s2-p0` と
+`datasets/soundRealShake-m4-f10-s2-p0` の連続した `action` 軌道を再生し、
+手先に固定された `side` カメラの背景エッジ差分から右腕の joint1--joint6 を校正する。
+各軌道の前には、先端側を先に戻してから残りの関節を戻す2段階初期化を行う。
+
+```bash
+uv run iloha_calib.py
+```
+
+結果は既定で `iloha_calibration.json` に保存され、`iloha_eval.py` が自動で読み込む。
+明示的に指定し、ファイルがない場合をエラーにするには次のオプションを使う。
+
+```bash
+uv run iloha_eval.py ... \
+  --calibration-path iloha_calibration.json \
+  --require-calibration
+```
+
 - All
 ```bash
 uv run iloha_eval.py --policy_path outputs/train/act_soundRealAll-m4-f10-s2-p0_seed0/checkpoints/200000/pretrained_model --dataset_path datasets/soundRealAll-m4-f10-s2-p0 --output_root datasets/eval --episode_time_s 15 --num_episodes 25 --save_data --sound_index 0 --speaker right

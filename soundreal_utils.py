@@ -84,7 +84,7 @@ SOUNDREAL_IMAGE_KEYS = ("front", "side", "sound0", "sound1", "spec")
 # uv run workspace/tamago_test.py --list-devices
 TAMAGO_DEVICE_IDS = [6, 7, 8, 9]
 # 右上のTAMAGOから時計回りに並べたときのhwインデックス
-RECTANGLE_HW_ORDER_CLOCKWISE = [4, 5, 3, 2]
+RECTANGLE_HW_ORDER_CLOCKWISE = [4, 2, 3, 5]
 
 AZIMUTH_OFFSET_DEG = 0.0
 RECTANGLE_LONG_SIDE_M = 1.2

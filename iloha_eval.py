@@ -11,6 +11,13 @@ from typing import Optional
 import numpy as np
 from serial.tools import list_ports
 
+from iloha_calibration import (
+    DEFAULT_CALIBRATION_PATH,
+    dataset_to_hardware_action,
+    hardware_to_dataset_state,
+    load_joint_offsets,
+    offsets_summary,
+)
 from lerobot.cameras import make_cameras_from_configs
 from lerobot.cameras.realsense.configuration_realsense import RealSenseCameraConfig
 from lerobot.configs.policies import PreTrainedConfig
@@ -114,19 +121,32 @@ async def resolve_auto_robstride_ports(config: IlohaConfig) -> None:
         print(f"{arm} RobStrideポートを自動検出しました: {detected_port}")
 
 
-async def reset_robot_to_home(robot: Iloha, init: bool = True) -> None:
+async def reset_robot_to_home(
+    robot: Iloha,
+    init: bool = True,
+    right_joint_offsets: Optional[np.ndarray] = None,
+) -> None:
     print("ロボットを初期位置に戻しています...")
+
+    offsets = (
+        np.zeros(RIGHT_ARM_DIM, dtype=np.float32)
+        if right_joint_offsets is None
+        else np.asarray(right_joint_offsets, dtype=np.float32)
+    )
+    if offsets.shape != (RIGHT_ARM_DIM,):
+        raise ValueError(f"Expected {RIGHT_ARM_DIM} right joint offsets, got {offsets.shape}")
+    calibrated_home = make_full_action_from_right(offsets)
 
     # Keep the current RobStride targets for the first command.  In particular,
     # replacing a negative motor target with zero immediately can make a
     # multi-turn motor take the long route to the origin on startup.
     home_action = np.asarray(robot.old_action, dtype=np.float32).copy()
-    home_action[3:7] = 0.0
-    home_action[10:14] = 0.0
+    home_action[3:7] = calibrated_home[3:7]
+    home_action[10:14] = calibrated_home[10:14]
     await robot.async_send_action(home_action, use_relative=False, use_filter=False, use_unwrap=False)
     await asyncio.sleep(2.0)
 
-    home_action = np.zeros_like(home_action)
+    home_action = calibrated_home
     await robot.async_send_action(home_action, use_relative=False, use_filter=False, use_unwrap=False)
     await asyncio.sleep(1.0)
 
@@ -328,6 +348,7 @@ def capture_soundreal_observation(
     robot: Iloha,
     cameras: dict,
     sound_source: Optional[RealSoundObservationSource],
+    right_joint_offsets: Optional[np.ndarray] = None,
 ) -> dict:
     obs = {}
     for name, camera in cameras.items():
@@ -339,7 +360,14 @@ def capture_soundreal_observation(
 
     if sound_source is not None:
         obs.update(sound_source.get_latest_images())
-    obs.update(full_action_to_right_feature_dict(robot.old_action))
+    if right_joint_offsets is None:
+        obs.update(full_action_to_right_feature_dict(robot.old_action))
+    else:
+        dataset_state = hardware_to_dataset_state(
+            np.asarray(robot.old_action, dtype=np.float32)[7:14],
+            right_joint_offsets,
+        )
+        obs.update(right_array_to_feature_dict(dataset_state))
     return obs
 
 
@@ -401,6 +429,7 @@ async def evaluation_loop(
     episode_time_s: float,
     task: str,
     policy_features: dict,
+    right_joint_offsets: np.ndarray,
     dataset: Optional[LeRobotDataset] = None,
     display_data: bool = False,
 ) -> int:
@@ -417,7 +446,12 @@ async def evaluation_loop(
             print(f"エピソード時間（{episode_time_s}秒）に達しました")
             break
 
-        obs = capture_soundreal_observation(robot, cameras, sound_source)
+        obs = capture_soundreal_observation(
+            robot,
+            cameras,
+            sound_source,
+            right_joint_offsets=right_joint_offsets,
+        )
         observation_frame = build_dataset_frame(policy_features, obs, prefix="observation")
 
         try:
@@ -436,10 +470,6 @@ async def evaluation_loop(
             print(f"アクション予測エラー: {exc}")
             raise
 
-        ######### 補正 #########
-        right_action[1] -= 0.03
-        #######################
-
         if first_action_time is None:
             first_action_time = time.time()
 
@@ -453,8 +483,12 @@ async def evaluation_loop(
             or max_delta > ABSOLUTE_MODE_DELTA_THRESHOLD
         )
 
+        hardware_right_action = dataset_to_hardware_action(
+            right_action,
+            right_joint_offsets,
+        )
         await robot.async_send_action(
-            make_full_action_from_right(right_action),
+            make_full_action_from_right(hardware_right_action),
             use_relative=use_relative,
             use_filter=not use_relative,
         )
@@ -490,6 +524,16 @@ async def main(args) -> None:
     task = SOUNDREAL_TASK_NAME
     dataset_path = Path(args.dataset_path).resolve()
     policy_path = str(Path(args.policy_path).resolve())
+    calibration_path = Path(args.calibration_path).resolve() if args.calibration_path else None
+    right_joint_offsets = load_joint_offsets(
+        calibration_path,
+        required=args.require_calibration,
+    )
+    if calibration_path is not None and calibration_path.is_file():
+        print(f"キャリブレーションを読み込みました: {calibration_path}")
+        print(offsets_summary(right_joint_offsets))
+    else:
+        print("キャリブレーションファイルなし: ゼロオフセットで評価します")
 
     if not dataset_path.exists():
         raise FileNotFoundError(f"Dataset path not found: {dataset_path}")
@@ -560,7 +604,7 @@ async def main(args) -> None:
     try:
         await robot.connect()
         print("ロボット接続完了")
-        await reset_robot_to_home(robot)
+        await reset_robot_to_home(robot, right_joint_offsets=right_joint_offsets)
         robot_is_home = True
 
         print("=" * 60)
@@ -661,6 +705,7 @@ async def main(args) -> None:
                 episode_time_s=args.episode_time_s,
                 task=task,
                 policy_features=dataset_for_stats.features,
+                right_joint_offsets=right_joint_offsets,
                 dataset=dataset,
                 display_data=args.display_data,
             )
@@ -688,7 +733,11 @@ async def main(args) -> None:
                     dataset.clear_episode_buffer()
                     print(f"エピソード {episode_idx + 1} は空だったため保存をスキップしました")
 
-            await reset_robot_to_home(robot, init=False)
+            await reset_robot_to_home(
+                robot,
+                init=False,
+                right_joint_offsets=right_joint_offsets,
+            )
             robot_is_home = True
             if episode_idx < args.num_episodes - 1:
                 await asyncio.sleep(2.0)
@@ -746,7 +795,11 @@ async def main(args) -> None:
         if robot is not None:
             if not robot_is_home:
                 try:
-                    await reset_robot_to_home(robot, init=False)
+                    await reset_robot_to_home(
+                        robot,
+                        init=False,
+                        right_joint_offsets=right_joint_offsets,
+                    )
                     robot_is_home = True
                 except Exception as exc:
                     print(f"初期位置復帰エラー: {exc}")
@@ -763,6 +816,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="soundReal 実機 Iloha Policy 評価")
     parser.add_argument("--policy_path", type=str, required=True, help="学習済み policy のパス")
     parser.add_argument("--dataset_path", type=str, required=True, help="正規化統計を使う dataset のパス")
+    parser.add_argument(
+        "--calibration-path",
+        "--calibration_path",
+        default=str(DEFAULT_CALIBRATION_PATH),
+        help="iloha_calib.py が生成した calibration JSON（未作成時はゼロ補正）",
+    )
+    parser.add_argument(
+        "--require-calibration",
+        action="store_true",
+        help="calibration JSON が存在しない場合にエラーにする",
+    )
     parser.add_argument("--output_root", type=str, default="datasets", help="保存先ルート")
     parser.add_argument("--save_data", action="store_true", help="評価時の観測と action を保存する")
     parser.add_argument("--episode_time_s", type=float, default=60.0, help="1 エピソードの長さ（秒）")
